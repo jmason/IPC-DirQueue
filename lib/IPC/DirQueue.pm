@@ -210,7 +210,7 @@ sub enqueue_string {
   my $enqd_already = 0;
   return $self->enqueue_backend ($metadata, $pri, undef,
         sub {
-          $enqd_already++ and return "";
+          return if $enqd_already++;
           return $string;
         });
 }
@@ -224,15 +224,16 @@ C<$dq-E<gt>enqueue_file()>.
 C<$subref> is a perl subroutine, which is expected to return one of the
 following each time it is called:
 
-    - a string of data bytes to be appended to any existing data
+    - a string of data bytes to be appended to any existing data.  (the
+      string may be empty, C<''>, in which case it's a no-op.)
 
-    - C<0> when the enqueued data has ended, ie. EOF
+    - C<undef> when the enqueued data has ended, ie. EOF.
 
-    - C<undef> if an error occurs
+    - C<die()> if an error occurs.  The C<die()> message will be converted into
+      a warning, and the C<enqueue_sub()> call will return C<undef>.
 
-In other words, similar to the C<read(2)> POSIX API.   (Tip: note that
-this is a closure, so variables outside the subroutine can be accessed
-safely.)
+(Tip: note that this is a closure, so variables outside the subroutine can be
+accessed safely.)
 
 =cut
 
@@ -279,8 +280,14 @@ sub enqueue_backend {
   }
   my $pathtmpdata_created = 1;
 
-  my $siz = $self->copy_in_to_out_fh ($fhin, $callbackin,
+  my $siz;
+  eval {
+    $siz = $self->copy_in_to_out_fh ($fhin, $callbackin,
                               \*OUT, $pathtmpdata);
+  };
+  if ($@) {
+    warn "IPC::DirQueue: enqueue failed: $@";
+  }
   if (!defined $siz) {
     goto failure;
   }
@@ -734,16 +741,11 @@ sub copy_in_to_out_fh {
       my $stringin = $callbackin->();
 
       if (!defined($stringin)) {
-        warn "IPC::DirQueue: enqueue: cannot read: $!";
-        close $fhout;
-        return;
-      }
-
-      $len = length ($stringin);
-      if ($len == 0) {
         last;       # EOF
       }
 
+      $len = length ($stringin);
+      next if ($len == 0);  # empty string, nothing to write
       if (!syswrite ($fhout, $stringin, $len)) {
         warn "IPC::DirQueue: enqueue: cannot write to $outfname: $!";
         close $fhout;

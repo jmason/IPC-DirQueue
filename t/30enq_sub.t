@@ -21,7 +21,7 @@ sub start_writer {
   for my $j (1 .. $COUNT) {
     my $counter = 0;
     ok ($bq->enqueue_sub (sub {
-            return (defined $data[$counter] ? $data[$counter++] : '');
+            return (defined $data[$counter] ? $data[$counter++] : undef);
         }, { foo => "bar $$" }));
   }
 }
