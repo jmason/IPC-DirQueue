@@ -66,7 +66,7 @@ use IPC::DirQueue::Job;
 
 our @ISA = ();
 
-our $VERSION = 0.02;
+our $VERSION = 0.03;
 
 use constant SLASH => '/';
 
