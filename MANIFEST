@@ -10,10 +10,11 @@ dq-server
 dq-submit
 lib/IPC/DirQueue.pm
 lib/IPC/DirQueue/Job.pm
+long-tests/90bigstress.t
+long-tests/run-bigstress
 t/00basic.t
 t/10enq_string.t
 t/20cmdline.t
+t/30enq_sub.t
 t/80stress.t
 t/80stress_unordered.t
-long-tests/90bigstress.t
-long-tests/run-bigstress

@@ -181,11 +181,12 @@ sub enqueue_file {
   return $ret;
 }
 
-=item $dq->enqueue_fh ($filename [, $metadata [, $pri] ] );
+=item $dq->enqueue_fh ($filehandle [, $metadata [, $pri] ] );
 
 Enqueue a new job for processing. Returns C<1> if the job was enqueued, or
 C<undef> on failure. C<$pri> and C<$metadata> are as described in
-C<$dq-E<gt>enqueue_file()>.
+C<$dq-E<gt>enqueue_file()>.  C<$filehandle> is a perl file handle
+that must be open for reading.
 
 =cut
 
@@ -206,10 +207,38 @@ C<$pri> and C<$metadata> are as described in C<$dq-E<gt>enqueue_file()>.
 
 sub enqueue_string {
   my ($self, $string, $metadata, $pri) = @_;
+  my $enqd_already = 0;
   return $self->enqueue_backend ($metadata, $pri, undef,
         sub {
+          $enqd_already++ and return "";
           return $string;
         });
+}
+
+=item $dq->enqueue_sub ($subref [, $metadata [, $pri] ] );
+
+Enqueue a new job for processing. Returns C<1> if the job was enqueued, or
+C<undef> on failure. C<$pri> and C<$metadata> are as described in
+C<$dq-E<gt>enqueue_file()>.
+
+C<$subref> is a perl subroutine, which is expected to return one of the
+following each time it is called:
+
+    - a string of data bytes to be appended to any existing data
+
+    - C<0> when the enqueued data has ended, ie. EOF
+
+    - C<undef> if an error occurs
+
+In other words, similar to the C<read(2)> POSIX API.   (Tip: note that
+this is a closure, so variables outside the subroutine can be accessed
+safely.)
+
+=cut
+
+sub enqueue_sub {
+  my ($self, $subref, $metadata, $pri) = @_;
+  return $self->enqueue_backend ($metadata, $pri, undef, $subref);
 }
 
 # private implementation.
@@ -701,14 +730,27 @@ sub copy_in_to_out_fh {
 
   binmode $fhout;
   if ($callbackin) {
-    my $stringin = $callbackin->();
-    $len = length ($stringin);
-    if (!syswrite ($fhout, $stringin, $len)) {
-      warn "IPC::DirQueue: cannot write to $outfname: $!";
-      close $fhout;
-      return;
+    while (1) {
+      my $stringin = $callbackin->();
+
+      if (!defined($stringin)) {
+        warn "IPC::DirQueue: enqueue: cannot read: $!";
+        close $fhout;
+        return;
+      }
+
+      $len = length ($stringin);
+      if ($len == 0) {
+        last;       # EOF
+      }
+
+      if (!syswrite ($fhout, $stringin, $len)) {
+        warn "IPC::DirQueue: enqueue: cannot write to $outfname: $!";
+        close $fhout;
+        return;
+      }
+      $siz += $len;
     }
-    $siz += $len;
   }
   else {
     binmode $fhin;
