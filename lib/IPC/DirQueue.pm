@@ -70,6 +70,8 @@ our $VERSION = 0.03;
 
 use constant SLASH => '/';
 
+our $DEBUG; # = 1;
+
 ###########################################################################
 
 =item $dq->new ($opts);
@@ -431,11 +433,12 @@ sub pickup_queued_job {
     $pathtmpactive = $pathtmp.SLASH.
                 $nextfile.".".$self->new_lock_filename().".active";
 
+    dbg ("creating tmp active $pathtmpactive");
     if (!sysopen (LOCK, $pathtmpactive, O_WRONLY|O_CREAT|O_EXCL,
         $self->{queue_file_mode}))
     {
       # could have contention; skip this file
-      # warn "IPC::DirQueue: cannot open $pathtmpactive for write: $!";
+      dbg ("IPC::DirQueue: cannot open $pathtmpactive for write: $!");
       next;
     }
     print LOCK $self->gethostname(), "\n", $$, "\n";
@@ -732,6 +735,8 @@ sub link_into_dir {
   $self->ensure_dir_exists ($pathlinkdir);
   my $path;
 
+  dbg ("link_into_dir $pathtmp $pathlinkdir/$qfname");
+
   # retry 10 times; add a random few digits on link(2) failure
   my $maxretries = 10;
   for my $retry (1 .. $maxretries) {
@@ -758,10 +763,12 @@ sub link_into_dir {
     # further collisions
     $qfname = $self->new_q_filename($job, 1);
 
+    dbg ("link_into_dir retrying: $retry");
     Time::HiRes::usleep (250 * $retry);
   }
 
   # got it! unlink(2) the tmp file, since we don't need it.
+  dbg ("link_into_dir unlink tmp file: $pathtmp");
   if (!unlink ($pathtmp)) {
     warn "IPC::DirQueue: cannot unlink $pathtmp";
     # non-fatal, we can still continue anyway
@@ -774,6 +781,8 @@ sub link_into_dir_no_retry {
   my ($self, $job, $pathtmp, $pathlinkdir, $qfname) = @_;
   $self->ensure_dir_exists ($pathlinkdir);
 
+  dbg ("link_into_dir_no_retry $pathtmp $pathlinkdir/$qfname");
+
   my $path = $pathlinkdir.SLASH.$qfname;
   if (!link ($pathtmp, $path))
   {
@@ -781,11 +790,14 @@ sub link_into_dir_no_retry {
     # use lstat() to verify that link() really failed.
     my ($dev,$ino,$mode,$nlink,$uid) = lstat($pathtmp);
     if ($nlink != 2) {
-      return;   # ok, it really failed
+      dbg ("link_into_dir_no_retry nlinks $nlink != 2: $pathtmp");
+      unlink ($pathtmp);	# just in case
+      return;			# ok, it really failed
     }
   }
 
   # got it! unlink(2) the tmp file, since we don't need it.
+  dbg ("link_into_dir_no_retry unlink tmp file: $pathtmp");
   if (!unlink ($pathtmp)) {
     warn "IPC::DirQueue: cannot unlink $pathtmp";
     # non-fatal, we can still continue anyway
@@ -797,6 +809,7 @@ sub link_into_dir_no_retry {
 sub create_control_file {
   my ($self, $job, $pathtmpdata, $pathtmpctrl) = @_;
 
+  dbg ("create_control_file $pathtmpctrl for $pathtmpdata ($job->{pathdata})");
   if (!sysopen (OUT, $pathtmpctrl, O_WRONLY|O_CREAT|O_EXCL,
       $self->{queue_file_mode}))
   {
@@ -991,6 +1004,11 @@ sub queuedir_is_bad {
   # otherwise, we could open it -- it just needed to be created.
   closedir RETRY;
   return 0;
+}
+
+sub dbg {
+  return unless $DEBUG;
+  warn "dq debug: ".join(' ',@_)."\n";
 }
 
 ###########################################################################
