@@ -1097,6 +1097,10 @@ C<IPC::DirQueue::Job>
 
 Justin Mason E<lt>dq /at/ jmason.orgE<gt>
 
+=head1 MAILING LIST
+
+The IPC::DirQueue mailing list is at E<lt>ipc-dirqueue-subscribe@perl.orgE<gt>.
+
 =head1 COPYRIGHT
 
 C<IPC::DirQueue> is distributed under the same license as perl itself.
