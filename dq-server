@@ -56,10 +56,11 @@ GetOptions(
 ) or usage();
 $dir or usage();
 
+my $jobsleft = $njobs;
 my $dq = IPC::DirQueue->new({ dir => $dir });
 
 while (1) {
-  last if ($njobs-- <= 0);
+  last if ($njobs && $jobsleft-- <= 0);
 
   my $job = $dq->wait_for_queued_job();
   if (!$job) { next; }
