@@ -254,8 +254,33 @@ sub enqueue_backend {
   }
   $job->{size_bytes} = $siz;
 
-  # now link(2) that into the 'data' dir.
+  # get the data dir
   my $pathdatadir = $self->q_subdir('data');
+
+  # hashing the data dir, using 2 levels of directory hashing.  This has a tiny
+  # effect on speed in all cases up to 10k queued files, but has good results
+  # in terms of the usability of those dirs for users doing direct access, so
+  # enabled by default.
+  if (1) {
+    # take the last two chars for the hashname.  In most cases, this will
+    # be the last 2 chars of a hash of (hostname, pid), so effectively
+    # random.  Remove it from the filename entirely, since it's redundant
+    # to have it both in the dir name and the filename.
+    $qfnametmp =~ s/([A-Za-z0-9+_])([A-Za-z0-9+_])$//;
+    my $hash1 = $1 || '0';
+    my $hash2 = $2 || '0';
+    my $origdatadir = $pathdatadir;
+    $pathdatadir = "$pathdatadir/$hash1/$hash2";
+    # check to see if that hashdir exists... build it up if req'd
+    if (!-d $pathdatadir) {
+      foreach my $dir ($origdatadir, "$origdatadir/$hash1", $pathdatadir)
+      {
+        (-d $dir) or mkdir ($dir);
+      }
+    }
+  }
+
+  # now link(2) the data tmpfile into the 'data' dir.
   my $pathdata = $self->link_into_dir ($job, $pathtmpdata,
                                     $pathdatadir, $qfnametmp);
   if (!$pathdata) {
@@ -867,37 +892,46 @@ sub q_subdir {
 }
 
 sub new_q_filename {
-  my ($self, $job, $userand) = @_;
+  my ($self, $job, $addextra) = @_;
 
   my @gmt = gmtime ($job->{time_submitted_secs});
 
-  # NN.20040718140300MMMM.hostname.$$
+  # NN20040718140300MMMM.hash(hostname.$$)[.rand]
   #
   # NN = priority, default 50
   # MMMM = microseconds from Time::HiRes::gettimeofday()
   # hostname = current hostname
 
-  my $buf = sprintf ("%02d.%04d%02d%02d%02d%02d%02d.%06d.%s.%d",
+  my $buf = sprintf ("%02d.%04d%02d%02d%02d%02d%02d%06d.%s",
         $job->{pri},
         $gmt[5]+1900, $gmt[4]+1, $gmt[3], $gmt[2], $gmt[1], $gmt[0],
-        $job->{time_submitted_msecs}, $self->gethostname(),
-        $$);
+        $job->{time_submitted_msecs},
+        hash_string_to_filename ($self->gethostname().$$));
 
-  if ($userand) {
-    $buf .= ".".$self->get_random_int();
+  # normally, this isn't used.  but if there's a collision,
+  # all retries after that will do this; in this case, the
+  # extra anti-collision stuff is useful
+  if ($addextra) {
+    $buf .= ".".$$.".".$self->get_random_int();
   }
 
   return $buf;
 }
 
+sub hash_string_to_filename {
+  my ($str) = @_;
+  # get a 16-bit checksum of the input, then uuencode that string
+  $str = pack ("u*", unpack ("%16C*", $str));
+  # transcode from uuencode-space into safe, base64-ish space
+  $str =~ y/ -_/A-Za-z0-9+_/;
+  # and remove the stuff that wasn't in that "safe" range
+  $str =~ y/A-Za-z0-9+_//cd;
+  return $str;
+}
+
 sub new_lock_filename {
   my ($self) = @_;
-
-  my $buf = sprintf ("%d.%s.%d", time, $self->gethostname(), $$);
-  #if ($userand) {
-  #$buf .= ".".$self->get_random_int();
-  #}
-  return $buf;
+  return sprintf ("%d.%s.%d", time, $self->gethostname(), $$);
 }
 
 sub get_random_int {
