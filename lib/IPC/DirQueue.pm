@@ -232,6 +232,7 @@ sub enqueue_backend {
   # NOTE: this can change until the moment we've renamed the ctrl file
   # into 'queue'!
   my $qfnametmp = $self->new_q_filename($job);
+  my $qcnametmp = $qfnametmp;
 
   my $pathtmp = $self->q_subdir('tmp');
   $self->ensure_dir_exists ($pathtmp);
@@ -299,7 +300,7 @@ sub enqueue_backend {
   # now link(2) that into the 'queue' dir.
   my $pathqueuedir = $self->q_subdir('queue');
   my $pathqueue = $self->link_into_dir ($job, $pathtmpctrl,
-                                    $pathqueuedir, $qfnametmp);
+                                    $pathqueuedir, $qcnametmp);
   if (!$pathqueue) {
     goto failure;
   }
@@ -1015,6 +1016,60 @@ modified, the lock file is deleted.
 Note: this means that if the dequeueing processes are spread among
 multiple machines, and there is no longer a dequeuer running on the
 machine that initially 'locked' the task, it will never be unlocked.
+
+=head1 QUEUE DIRECTORY STRUCTURE
+
+C<IPC::DirQueue> maintains the following structure for a queue directory:
+
+=over 4
+
+=item queue directory
+
+The B<queue> directory is used to store the queue control files.  Queue
+control files determine what jobs are active; if a job has a queue
+control file in this directory, it is active.
+
+The filename format is as follows:
+
+    50.20040909232529941258.HASH[.PID.RAND]
+
+The first two digits (C<50>) are the priority of the job.  Lower priority
+numbers are run first.  C<20040909232529> is the current date and time when the
+enqueueing process ran, in C<YYYYMMDDHHMMSS> format.   C<941258> is the time in
+microseconds, as returned by C<gettimeofday()>.  And finally, C<HASH> is a
+variable-length hash of some semi-random data, used to increase the chance of
+uniqueness.
+
+If there is a collision, the timestamps are regenerated after a 250 msec sleep,
+and further randomness will be added at the end of the string (namely, the
+current process ID and a random integer value).   Multiple retries are
+attempted until the file is atomically moved into the B<queue> directory
+without collision.
+
+=item data directory
+
+The B<data> directory is used to store enqueued data files.
+
+It contains a two-level "fan-out" hashed directory structure; each data file is
+stored under a single-letter directory, which in turn is under a single-letter
+directory.   This increases efficiency of directory lookups.
+
+The format of filenames here is similar to that used in the B<queue> directory,
+except that the last two characters are removed and used instead for the
+"fan-out" directory names.
+
+=item tmp directory
+
+The B<tmp> directory contains temporary work files that are in the process
+of enqueueing, and not ready ready for processing.
+
+The filename format here is similar to the above, with suffixes indicating
+the type of file (".ctrl", ".data").
+
+=back
+
+Atomic, NFS-safe renaming is used to avoid collisions, overwriting or
+other unsafe operations.
 
 =head1 SEE ALSO
 
