@@ -1,0 +1,15 @@
+MANIFEST
+MANIFEST.SKIP
+Makefile.PL
+t/00basic.t
+t/10enq_string.t
+t/80stress.t
+dq-deque
+dq-list
+dq-server
+dq-submit
+lib/IPC/DirQueue/Job.pm
+lib/IPC/DirQueue.pm
+t/20cmdline.t
+TODO
+BUGS
