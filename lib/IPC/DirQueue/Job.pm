@@ -1,6 +1,6 @@
 =head1 NAME
 
-IPC::DirQueue::Job - a IPC::DirQueue task
+IPC::DirQueue::Job - an IPC::DirQueue task
 
 =head1 SYNOPSIS
 
@@ -18,7 +18,7 @@ methods to access job information, and report job progress and completion.
 
 =head1 DATA
 
-Any submitted metadata can be accessed through the C<$job->{metadata}>
+Any submitted metadata can be accessed through the C<$job-E<gt>{metadata}>
 hash reference.  For example:
 
     print "email: ", $job->{metadata}->{submitter_email}, "\n";

@@ -31,21 +31,30 @@ sub usage {
 }
 
 our $dir;
+our $opt_count = 0;
 
 GetOptions(
+  'count|c' => \$opt_count,
   'dir=s'   => \$dir
 ) or usage();
 $dir or usage();
 
-my $dq = IPC::DirQueue->new({ dir => $dir });
+my $dq = IPC::DirQueue->new({
+        dir => $dir,
+        ordered => $opt_count ? 0 : 1
+      });
 
 my @active = ();
 my @queued = ();
 my $hostname = $dq->gethostname();
 $dq->visit_all_jobs (\&wanted, undef);
 
-printf "Jobs: active: %d  queued: %d\n\n",
+printf "Jobs: active: %d  queued: %d\n",
         scalar @active, scalar @queued;
+
+if ($opt_count) { exit; }
+
+print "\n";
 
 my $count = 1;
 if (scalar @active) {
