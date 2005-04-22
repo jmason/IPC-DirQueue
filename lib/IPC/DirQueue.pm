@@ -67,7 +67,7 @@ use Errno qw(EEXIST);
 
 our @ISA = ();
 
-our $VERSION = 0.05;
+our $VERSION = 0.06;
 
 use constant SLASH => '/';
 
