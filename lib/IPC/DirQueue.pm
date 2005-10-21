@@ -853,7 +853,11 @@ sub link_into_dir_no_retry {
     return;         # we've been beaten to it
   }
 
-  link ($pathtmp, $path) or dbg("link failure, recovering: $!");
+  my $linkfailed;
+  if (!link ($pathtmp, $path)) {
+    dbg("link failure, recovering: $!");
+    $linkfailed = 1;
+  }
 
   # link() may return failure, even if it succeeded. use lstat() to verify that
   # link() really failed.  use lstat() even if it reported success, just to be
@@ -867,9 +871,13 @@ sub link_into_dir_no_retry {
 
   # now, be paranoid and verify that the inode data is identical
   if ($dev1 != $dev3 || $ino1 != $ino3 || $uid1 != $uid3) {
-    # the tmpfile and the target don't match each other.  this is
-    # an error.  warn and recover
-    warn ("lidnr: tmp file doesn't match target: $pathtmp $path");
+    # the tmpfile and the target don't match each other.
+    # if the link failed, this means that another qproc got
+    # the file before we did, which is not an error.
+    if (!$linkfailed) {
+      # link supposedly succeeded, so this *is* an error.  warn
+      warn ("lidnr: tmp file doesn't match target: $path ($dev3,$ino3,$mode3,$nlink3,$uid3) vs $pathtmp ($dev1,$ino1,$mode1,$nlink1,$uid1)");
+    }
     return;
   }
   
@@ -1122,8 +1130,8 @@ C<IPC::DirQueue> maintains the following structure for a queue directory:
 =item queue directory
 
 The B<queue> directory is used to store the queue control files.  Queue
-control files determine what jobs are active; if a job has a queue
-control file in this directory, it is active.
+control files determine what jobs are in the queue; if a job has a queue
+control file in this directory, it is listed in the queue.
 
 The filename format is as follows:
 
@@ -1141,6 +1149,14 @@ and further randomness will be added at the end of the string (namely, the
 current process ID and a random integer value).   Multiple retries are
 attempted until the file is atomically moved into the B<queue> directory
 without collision.
+
+=item active directory
+
+The B<active> directory is used to store active queue control files.
+
+When a job becomes 'active' -- ie. is picked up by C<pickup_queued_job()> --
+its control file is moved from the B<queue> directory into the B<active>
+directory while it is processed.
 
 =item data directory
 
