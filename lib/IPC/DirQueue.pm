@@ -177,7 +177,7 @@ sub enqueue_file {
     warn "IPC::DirQueue: cannot open $file for read: $!";
     return;
   }
-  my $ret = $self->enqueue_backend ($metadata, $pri, \*IN);
+  my $ret = $self->_enqueue_backend ($metadata, $pri, \*IN);
   close IN;
   return $ret;
 }
@@ -193,7 +193,7 @@ that must be open for reading.
 
 sub enqueue_fh {
   my ($self, $fhin, $metadata, $pri) = @_;
-  my $ret = $self->enqueue_backend ($metadata, $pri, $fhin);
+  my $ret = $self->_enqueue_backend ($metadata, $pri, $fhin);
   close $fhin;
   return $ret;
 }
@@ -209,7 +209,7 @@ C<$pri> and C<$metadata> are as described in C<$dq-E<gt>enqueue_file()>.
 sub enqueue_string {
   my ($self, $string, $metadata, $pri) = @_;
   my $enqd_already = 0;
-  return $self->enqueue_backend ($metadata, $pri, undef,
+  return $self->_enqueue_backend ($metadata, $pri, undef,
         sub {
           return if $enqd_already++;
           return $string;
@@ -240,11 +240,11 @@ accessed safely.)
 
 sub enqueue_sub {
   my ($self, $subref, $metadata, $pri) = @_;
-  return $self->enqueue_backend ($metadata, $pri, undef, $subref);
+  return $self->_enqueue_backend ($metadata, $pri, undef, $subref);
 }
 
 # private implementation.
-sub enqueue_backend {
+sub _enqueue_backend {
   my ($self, $metadata, $pri, $fhin, $callbackin) = @_;
 
   if (!defined($pri)) { $pri = 50; }
@@ -343,6 +343,14 @@ sub enqueue_backend {
   if (!$pathqueue) {
     goto failure;
   }
+
+  # touch the "lastenq" flag file, to work around half-assed
+  # filesystems that don't update the mtime on a directory if a file
+  # changes inside it (e.g. Reiserfs)
+  my $pathflagsdir = $self->q_subdir('flags');
+  $self->ensure_dir_exists ($pathflagsdir);
+  my $pathlenqfile = $pathflagsdir.SLASH."lastenq";
+  open(TOUCH, ">".$pathlenqfile); print TOUCH "1"; close TOUCH;
 
   # my $pathqueue_created = 1;     # not required, we're done!
   return 1;
@@ -515,11 +523,10 @@ sub pickup_queued_job {
       goto nextfile;
     }
 
-    if (!$self->read_control_file ($job, \*IN)) {
-      close IN;
-      next;
-    }
+    my $red = $self->read_control_file ($job, \*IN);
     close IN;
+
+    next if (!$red);
 
     closedir($dirfh) unless $ordered;
     return $job;
@@ -583,8 +590,18 @@ sub wait_for_queued_job {
     # check the stat time on the queue dir *before* we call pickup,
     # to avoid a race condition where a job is added while we're
     # checking in that function.
-    my @stat = stat ($pathqueuedir);
-    my $qdirlaststat = $stat[9];
+
+    # check the "lastenq" flag file; fall back to the queue dir
+    # if that file does not exist (backwards compat with pre-0.06 DQs)
+    my $pathlenqfile = $self->q_subdir('flags').SLASH."lastenq";
+    my @stat = stat ($pathlenqfile);
+    my $lenqlaststat = $stat[9];
+    my $qdirlaststat;
+
+    if (!defined $lenqlaststat) {
+      @stat = stat ($pathqueuedir);
+      $qdirlaststat = $stat[9];
+    }
 
     my $job = $self->pickup_queued_job();
     if ($job) { return $job; }
@@ -599,8 +616,21 @@ sub wait_for_queued_job {
 
       Time::HiRes::usleep ($pollintvl);
 
-      my @stat = stat ($pathqueuedir);
-      if ($stat[9] != $qdirlaststat) {
+      my $wasactive;
+      if (defined $lenqlaststat) {
+        # modtime of "lastenq" flag file
+        @stat = stat ($pathlenqfile);
+        $wasactive = (defined $stat[9] && $stat[9] != $lenqlaststat);
+      }
+      else {
+        # backwards compat; report modtime of dir
+        @stat = stat ($pathqueuedir);
+        $wasactive = (defined $stat[9] &&
+              (defined $qdirlaststat && $stat[9] != $qdirlaststat)
+              || (!defined $qdirlaststat));
+      }
+
+      if ($wasactive) {
         last;                   # activity! try a pickup_queued_job() call
       }
     }
@@ -694,11 +724,13 @@ sub visit_all_jobs {
       next;
     }
 
-    if (!$self->read_control_file ($job, \*IN)) {
-      warn "IPC::DirQueue: cannot read control file: $pathqueue";
-      close IN; next;
-    }
+    my $red = $self->read_control_file ($job, \*IN);
     close IN;
+
+    if (!$red) {
+      warn "IPC::DirQueue: cannot read control file: $pathqueue";
+      next;
+    }
 
     &$visitor ($visitcontext, $job);
   }
@@ -1177,6 +1209,15 @@ of enqueueing, and not ready ready for processing.
 
 The filename format here is similar to the above, with suffixes indicating
 the type of file (".ctrl", ".data").
+
+=item flags directory
+
+The B<flags> directory contains special-purpose 'flag files', used to control
+queue behaviour.   
+
+B<lastenq> is a flag file which is touched when a file is enqueued; this
+was added in v0.06 to work around a shortcoming in Reiserfs, which will
+not update the mtime on a directory when a file is created in it.
 
 =back
 
