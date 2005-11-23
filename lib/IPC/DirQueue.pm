@@ -469,7 +469,7 @@ sub pickup_queued_job {
       }
 
       # else, we can kill the stale lockfile
-      unlink $pathactive;
+      unlink $pathactive or warn "IPC::DirQueue: unlink failed: $pathactive";
       warn "IPC::DirQueue: killed stale lockfile: $pathactive";
     }
 
@@ -500,6 +500,14 @@ sub pickup_queued_job {
 
     my $pathqueue = $pathqueuedir.SLASH.$nextfile;
 
+    if (!-f $pathqueue) {
+      # queue file already gone; another worker got it before we did.
+      # catch this case before we create a lockfile.
+      # see the "pathqueue_gone" comment below for an explanation
+      dbg("IPC::DirQueue: $pathqueue no longer exists, skipping");
+      goto nextfile;
+    }
+
     my $job = IPC::DirQueue::Job->new ($self, {
       jobid => $nextfile,
       pathqueue => $pathqueue,
@@ -508,9 +516,9 @@ sub pickup_queued_job {
 
     my $pathnewactive = $self->link_into_dir_no_retry ($job,
                         $pathtmpactive, $pathactivedir, $nextfile);
-    if (!$pathnewactive) {
+    if (!defined($pathnewactive)) {
       # link failed; another worker got it before we did
-      unlink $pathtmpactive;
+      # no need to unlink tmpfile, the "nextfile" action will do that
       goto nextfile;
     }
 
@@ -518,9 +526,20 @@ sub pickup_queued_job {
       die "oops! active paths differ: $pathactive $pathnewactive";
     }
 
-    if (!open (IN, "<".$pathqueue)) {
+    if (!open (IN, "<".$pathqueue))
+    {
+      # since we read the list of files upfront, this can happen:
+      #
+      # dqproc1: [gets lock] [work] [finish_job]
+      # dqproc2:                                 [gets lock]
+      #
+      # "dqproc1" has already completed the job, unlinking both the active
+      # *and* queue files, by the time "dqproc2" gets to it.  This is OK;
+      # just skip the file, since it's already done.  [pathqueue_gone]
+
       dbg("IPC::DirQueue: cannot open $pathqueue for read: $!");
-      goto nextfile;
+      unlink $pathnewactive;
+      next;     # NOT "goto nextfile", as pathtmpactive is already unlinked
     }
 
     my $red = $self->read_control_file ($job, \*IN);
@@ -532,7 +551,7 @@ sub pickup_queued_job {
     return $job;
 
 nextfile:
-    unlink ($pathtmpactive);  # remove the tmp file
+    unlink $pathtmpactive or warn "IPC::DirQueue: unlink failed: $pathtmpactive";
   }
 
   closedir($dirfh) unless $ordered;
@@ -744,16 +763,21 @@ sub visit_all_jobs {
 sub finish_job {
   my ($self, $job, $isdone) = @_;
 
+  dbg ("finish_job: ", $job->{pathactive});
+
   if ($job->{is_readonly}) {
     return;
   }
 
   if ($isdone) {
-    unlink ($job->{pathqueue});
-    unlink ($job->{QDFN});
+    unlink($job->{pathqueue})
+            or warn "IPC::DirQueue: unlink failed: $job->{pathqueue}";
+    unlink($job->{QDFN})
+            or warn "IPC::DirQueue: unlink failed: $job->{QDFN}";
   }
 
-  unlink ($job->{pathactive});
+  unlink($job->{pathactive})
+            or warn "IPC::DirQueue: unlink failed: $job->{pathactive}";
 }
 
 ###########################################################################
@@ -823,12 +847,12 @@ sub link_into_dir {
   $self->ensure_dir_exists ($pathlinkdir);
   my $path;
 
-  dbg ("link_into_dir $pathtmp $pathlinkdir/$qfname");
-
   # retry 10 times; add a random few digits on link(2) failure
   my $maxretries = 10;
   for my $retry (1 .. $maxretries) {
     $path = $pathlinkdir.SLASH.$qfname;
+
+    dbg ("link_into_dir retry=", $retry, " tmp=", $pathtmp, " path=", $path);
 
     if (link ($pathtmp, $path)) {
       last; # got it
@@ -870,7 +894,7 @@ sub link_into_dir_no_retry {
   my ($self, $job, $pathtmp, $pathlinkdir, $qfname) = @_;
   $self->ensure_dir_exists ($pathlinkdir);
 
-  dbg ("lidnr: $pathtmp $pathlinkdir/$qfname");
+  dbg ("lidnr: ", $pathtmp, " ", $pathlinkdir, "/", $qfname);
 
   my ($dev1,$ino1,$mode1,$nlink1,$uid1) = lstat($pathtmp);
   if (!defined $nlink1) {
