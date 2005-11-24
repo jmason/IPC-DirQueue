@@ -164,7 +164,13 @@ brings with it several restrictions:
 
 =back
 
-If those restrictions are broken, that metadatum will be silently dropped.
+If those restrictions are broken, die() will be called with the following
+error:
+
+      die "IPC::DirQueue: invalid metadatum: '$k'";
+
+This is a change added in release 0.06; prior to that, that metadatum would be
+silently dropped.
 
 An optional priority can be specified; lower priorities are run first.
 Priorities range from 0 to 99, and 50 is default.
@@ -187,7 +193,8 @@ sub enqueue_file {
 Enqueue a new job for processing. Returns C<1> if the job was enqueued, or
 C<undef> on failure. C<$pri> and C<$metadata> are as described in
 C<$dq-E<gt>enqueue_file()>.  C<$filehandle> is a perl file handle
-that must be open for reading.
+that must be open for reading.  It will be closed on completion,
+regardless of success or failure.
 
 =cut
 
@@ -968,9 +975,13 @@ sub create_control_file {
   my $md = $job->{metadata};
   foreach my $k (keys %{$md}) {
     my $v = $md->{$k};
-    next if ($k =~ /^Q...$/);
-    next if ($k =~ /[:\0\n]/);
-    next if ($v =~ /[\0\n]/);
+    if (($k =~ /^Q...$/)
+        || ($k =~ /[:\0\n]/)
+        || ($v =~ /[\0\n]/))
+    {
+      close OUT;
+      die "IPC::DirQueue: invalid metadatum: '$k'"; # TODO: clean up files?
+    }
     print OUT $k, ": ", $v, "\n";
   }
 
