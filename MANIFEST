@@ -17,5 +17,7 @@ t/10enq_string.t
 t/20cmdline.t
 t/30enq_sub.t
 t/40enq_fh.t
+t/50_cli_b4_srv.t
+t/50_srv_b4_cli.t
 t/80stress.t
 t/80stress_unordered.t
