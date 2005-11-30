@@ -106,6 +106,12 @@ current process C<umask>.
 Whether the jobs should be processed in order of submission, or
 in no particular order.
 
+=item queue_fanout => { 0 | 1 } (default: 0)
+
+Whether the queue directory should be 'fanned out'.  This allows better
+scalability with NFS-shared queues with large numbers of pending files, but
+hurts performance otherwise.   It also implies B<ordered> = 0.
+
 =item buf_size => $number (default: 65536)
 
 The buffer size to use when copying files, in bytes.
@@ -133,7 +139,11 @@ sub new {
   $self->{queue_file_mode} ||= '0666';
   $self->{queue_file_mode} = oct ($self->{queue_file_mode});
 
-  if (!defined $self->{ordered}) {
+  if ($self->{queue_fanout}) {
+    $self->{queue_fanout} = 1;
+    $self->{ordered} = 0;           # fanout wins
+  }
+  elsif (!defined $self->{ordered}) {
     $self->{ordered} = 1;
   }
 
@@ -350,8 +360,12 @@ sub _enqueue_backend {
 
   # now link(2) that into the 'queue' dir.
   my $pathqueuedir = $self->q_subdir('queue');
+  my $fanout = $self->queue_dir_fanout_create($pathqueuedir);
+
   my $pathqueue = $self->link_into_dir ($job, $pathtmpctrl,
-                                    $pathqueuedir, $qcnametmp);
+                $self->queue_dir_fanout_path($pathqueuedir, $fanout),
+                $qcnametmp);
+
   if (!$pathqueue) {
     goto failure;
   }
@@ -360,9 +374,13 @@ sub _enqueue_backend {
   # filesystems that don't update the mtime on a directory if a file
   # changes inside it (e.g. Reiserfs)
   my $pathflagsdir = $self->q_subdir('flags');
-  $self->ensure_dir_exists ($pathflagsdir);
+  $self->ensure_dir_exists($pathflagsdir);
+
+  # and incr the fanout counter for that fanout dir
+  $self->queue_dir_fanout_commit($pathqueuedir, $fanout);
+
   my $pathlenqfile = $pathflagsdir.SLASH."lastenq";
-  open(TOUCH, ">".$pathlenqfile); print TOUCH "1"; close TOUCH;
+  utime undef, undef, $pathlenqfile;
 
   # my $pathqueue_created = 1;     # not required, we're done!
   return 1;
@@ -403,41 +421,20 @@ sub pickup_queued_job {
   my $pathactivedir = $self->q_subdir('active');
   $self->ensure_dir_exists ($pathactivedir);
 
-  my $ordered = $self->{ordered};
-  my @files;
-  my $dirfh;
+  my $iter = $self->queue_iter_start($pathqueuedir);
 
-  if ($ordered) {
-    @files = $self->get_dir_filelist_sorted($pathqueuedir);
-    if (scalar @files <= 0) {
-      return if $self->queuedir_is_bad($pathqueuedir);
-    }
-  } else {
-    if (!opendir ($dirfh, $pathqueuedir)) {
-      return if $self->queuedir_is_bad($pathqueuedir);
-      if (!opendir ($dirfh, $pathqueuedir)) {
-        warn "oops? pathqueuedir bad"; return;
-      }
-    }
-  }
-
-  my $nextfile;
   while (1) {
-    my $pathtmpactive;
+    my $nextfile = $self->queue_iter_next($iter);
 
-    if ($ordered) {
-      $nextfile = shift @files;
-    } else {
-      $nextfile = readdir($dirfh);
-    }
-
-    if (!$nextfile) {
+    if (!defined $nextfile) {
       # no more files in the queue, return empty
       last;
     }
 
-    next if ($nextfile !~ /^\d/);
-    my $pathactive = $pathactivedir.SLASH.$nextfile;
+    my $nextfilebase = $self->queue_dir_fanout_path_strip($nextfile);
+
+    next if ($nextfilebase !~ /^\d/);
+    my $pathactive = $pathactivedir.SLASH.$nextfilebase;
 
     my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
         $atime,$mtime,$ctime,$blksize,$blocks) = lstat($pathactive);
@@ -473,7 +470,7 @@ sub pickup_queued_job {
       # this isn't perfect.  TODO: is there a "rename this fd" syscall
       # accessible from perl?
 
-      my $fudge = get_random_int() % 255;
+      my $fudge = get_random_int() % 256;
       if (time() - $mtime < 600+$fudge) {
         # within the fudge zone.  don't unlink it in this process.
         dbg ("within active fudge zone, skip: $pathactive");
@@ -490,8 +487,8 @@ sub pickup_queued_job {
     $self->ensure_dir_exists ($pathtmp);
 
     # use the name of the queue file itself, plus a tmp prefix, plus active
-    $pathtmpactive = $pathtmp.SLASH.
-                $nextfile.".".$self->new_lock_filename().".active";
+    my $pathtmpactive = $pathtmp.SLASH.
+                $nextfilebase.".".$self->new_lock_filename().".active";
 
     dbg ("creating tmp active $pathtmpactive");
     if (!sysopen (LOCK, $pathtmpactive, O_WRONLY|O_CREAT|O_EXCL,
@@ -521,13 +518,13 @@ sub pickup_queued_job {
     }
 
     my $job = IPC::DirQueue::Job->new ($self, {
-      jobid => $nextfile,
+      jobid => $nextfilebase,
       pathqueue => $pathqueue,
       pathactive => $pathactive
     });
 
     my $pathnewactive = $self->link_into_dir_no_retry ($job,
-                        $pathtmpactive, $pathactivedir, $nextfile);
+                        $pathtmpactive, $pathactivedir, $nextfilebase);
     if (!defined($pathnewactive)) {
       # link failed; another worker got it before we did
       # no need to unlink tmpfile, the "nextfile" action will do that
@@ -559,14 +556,14 @@ sub pickup_queued_job {
 
     next if (!$red);
 
-    closedir($dirfh) unless $ordered;
+    $self->queue_iter_stop($iter);
     return $job;
 
 nextfile:
     unlink $pathtmpactive or warn "IPC::DirQueue: unlink failed: $pathtmpactive";
   }
 
-  closedir($dirfh) unless $ordered;
+  $self->queue_iter_stop($iter);
   return;   # empty
 }
 
@@ -702,40 +699,24 @@ sub visit_all_jobs {
   my $pathqueuedir = $self->q_subdir('queue');
   my $pathactivedir = $self->q_subdir('active');
 
-  my $ordered = $self->{ordered};
-  my @files;
-  my $dirfh;
-
-  if ($ordered) {
-    @files = $self->get_dir_filelist_sorted($pathqueuedir);
-    if (scalar @files <= 0) {
-      return if $self->queuedir_is_bad($pathqueuedir);
-    }
-  } else {
-    if (!opendir ($dirfh, $pathqueuedir)) {
-      return if $self->queuedir_is_bad($pathqueuedir);
-      if (!opendir ($dirfh, $pathqueuedir)) {
-        warn "oops? pathqueuedir bad"; return;
-      }
-    }
-  }
+  my $iter = $self->queue_iter_start($pathqueuedir);
 
   my $nextfile;
   while (1) {
-    if ($ordered) {
-      $nextfile = shift @files;
-    } else {
-      $nextfile = readdir($dirfh);
-    }
+    $nextfile = $self->queue_iter_next($iter);
 
-    if (!$nextfile) {
+    if (!defined $nextfile) {
       # no more files in the queue, return empty
       last;
     }
 
-    next if ($nextfile !~ /^\d/);
+    my $nextfilebase = $self->queue_dir_fanout_path_strip($nextfile);
+
+    next if ($nextfilebase !~ /^\d/);
     my $pathqueue = $pathqueuedir.SLASH.$nextfile;
-    my $pathactive = $pathactivedir.SLASH.$nextfile;
+    my $pathactive = $pathactivedir.SLASH.$nextfilebase;
+
+    next if (!-f $pathqueue);
 
     my $acthost;
     my $actpid;
@@ -747,7 +728,7 @@ sub visit_all_jobs {
 
     my $job = IPC::DirQueue::Job->new ($self, {
       is_readonly => 1,     # means finish() will not rm files
-      jobid => $nextfile,
+      jobid => $nextfilebase,
       active_host => $acthost,
       active_pid => $actpid,
       pathqueue => $pathqueue,
@@ -770,7 +751,7 @@ sub visit_all_jobs {
     &$visitor ($visitcontext, $job);
   }
 
-  closedir($dirfh) unless $ordered;
+  $self->queue_iter_stop($iter);
 }
 
 ###########################################################################
@@ -1175,6 +1156,173 @@ sub dbg {
 
 ###########################################################################
 
+sub queue_iter_start {
+  my ($self, $pathqueuedir) = @_;
+  my $iter = { };
+
+  if ($self->{ordered}) {
+    dbg ("queue iter: opening $pathqueuedir (ordered)");
+    my @files = $self->get_dir_filelist_sorted($pathqueuedir);
+    if (scalar @files <= 0) {
+      return if $self->queuedir_is_bad($pathqueuedir);
+    }
+    $iter->{files} = \@files;
+
+  }
+  elsif ($self->{queue_fanout}) {
+    my @fanouts;
+    dbg ("queue iter: opening $pathqueuedir");
+    if (!opendir (DIR, $pathqueuedir)) {
+      @fanouts = ();          # no dir?  nothing queued
+    }
+    else {
+      my %map = map {
+              $_ => (-M $pathqueuedir.SLASH.$_)
+            } grep { /^[a-z0-9]$/ } readdir(DIR);
+      @fanouts = sort { $map{$a} <=> $map{$b} } keys %map;
+      dbg ("fanout: $pathqueuedir, order is ".join ' ', @fanouts);
+    }
+    closedir DIR;
+    $iter->{fanoutlist} = \@fanouts;
+    $iter->{pathqueuedir} = $pathqueuedir;
+
+  }
+  else {
+    my $dirfh;
+    dbg ("queue iter: opening $pathqueuedir");
+    if (!opendir ($dirfh, $pathqueuedir)) {
+      return if $self->queuedir_is_bad($pathqueuedir);
+      if (!opendir ($dirfh, $pathqueuedir)) {
+        warn "oops? pathqueuedir bad";
+        return;
+      }
+    }
+    $iter->{fh} = $dirfh;
+  }
+
+  return $iter;
+}
+
+sub queue_iter_next {
+  my ($self, $iter) = @_;
+
+  if ($self->{ordered}) {
+    return shift @{$iter->{files}};
+  }
+  elsif ($self->{queue_fanout}) {
+    return $self->queue_iter_fanout_next($iter);
+  }
+  else {
+    return readdir($iter->{fh});
+  }
+
+  return;
+}
+
+sub queue_iter_stop {
+  my ($self, $iter) = @_;
+  if ($self->{queue_fanout}) {
+    if (defined $iter->{fanfh}) {
+      closedir($iter->{fanfh});
+    }
+  }
+  elsif (!$self->{ordered}) {
+    closedir($iter->{fh});
+  }
+}
+
+###########################################################################
+
+sub queue_dir_fanout_create {
+  my ($self, $pathqueuedir) = @_;
+
+  if (!$self->{queue_fanout}) {
+    return;
+  }
+
+  my @letters = split '', q{0123456789abcdef};
+  my $fanout = $letters[get_random_int() % (scalar @letters)];
+
+  $self->ensure_dir_exists ($pathqueuedir);
+  $self->ensure_dir_exists ($pathqueuedir.SLASH.$fanout);
+  return $fanout;
+}
+
+sub queue_dir_fanout_commit {
+  my ($self, $pathqueuedir, $fanout) = @_;
+
+  if (!$self->{queue_fanout}) {
+    return;
+  }
+
+  # now touch all levels
+  utime(undef, undef, $pathqueuedir.SLASH.$fanout,
+                    $pathqueuedir)
+      or die "cannot touch fanout for $pathqueuedir/$fanout";
+}
+
+sub queue_dir_fanout_path {
+  my ($self, $pathqueuedir, $fanout) = @_;
+
+  if (!$self->{queue_fanout}) {
+    return $pathqueuedir;
+  }
+  else {
+    return $pathqueuedir.SLASH.$fanout;
+  }
+}
+
+sub queue_dir_fanout_path_strip {
+  my ($self, $fname) = @_;
+
+  if ($self->{queue_fanout}) {
+    $fname =~ s/^.*\///;
+  }
+  return $fname;
+}
+
+sub queue_iter_fanout_next {
+  my ($self, $iter) = @_;
+
+  # dir handles are:
+  # /path/to/queue     = $iter->{fh}
+  #               /f   = $iter->{fanfh}
+
+next_fanout:
+
+  # open the {fanfh} handle, if it isn't already going
+  if (!defined $iter->{fanfh}) {
+    my $nextfanout = shift @{$iter->{fanoutlist}};
+    if (!defined $nextfanout) {
+      dbg ("fanout: end of list");
+      return;
+    }
+
+    my $dirfh;
+    dbg ("fanout: opening next dir: $nextfanout");
+    if (!opendir ($dirfh, $iter->{pathqueuedir}.SLASH.$nextfanout)) {
+      warn "opendir failed $iter->{pathqueuedir}/$nextfanout: $!";
+      return;
+    }
+
+    $iter->{fanstr} = $nextfanout;
+    $iter->{fanfh} = $dirfh;
+  }
+
+  my $fname = readdir($iter->{fanfh});
+  if (defined $fname) {
+    return $iter->{fanstr}.SLASH.$fname;        # best-case scenario
+  }
+  
+  dbg ("fanout: finished this dir, trying next one");
+  closedir($iter->{fanfh});
+  $iter->{fanstr} = undef;
+  $iter->{fanfh} = undef;
+  goto next_fanout;
+}
+
+###########################################################################
+
 1;
 
 =back
@@ -1225,6 +1373,11 @@ and further randomness will be added at the end of the string (namely, the
 current process ID and a random integer value).   Multiple retries are
 attempted until the file is atomically moved into the B<queue> directory
 without collision.
+
+If B<queue_fanout> was used in the C<IPC::DirQueue> constructor, then
+the B<queue> directory does not contain the queue control files directly;
+instead, there is an interposing set of 16 'fanout' directories, named
+according to the hex digits from C<0> to C<f>.
 
 =item active directory
 

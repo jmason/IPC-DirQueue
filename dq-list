@@ -32,16 +32,19 @@ sub usage {
 
 our $dir;
 our $opt_count = 0;
+our $opt_fanout = 0;
 
 GetOptions(
   'count|c' => \$opt_count,
+  'fanout' => \$opt_fanout,
   'dir=s'   => \$dir
 ) or usage();
 $dir or usage();
 
 my $dq = IPC::DirQueue->new({
         dir => $dir,
-        ordered => $opt_count ? 0 : 1
+        ordered => $opt_count ? 0 : 1,
+        queue_fanout => $opt_fanout
       });
 
 my @active = ();
