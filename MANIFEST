@@ -21,3 +21,5 @@ t/50_cli_b4_srv.t
 t/50_srv_b4_cli.t
 t/80stress.t
 t/80stress_unordered.t
+t/15_enq_fanout.t
+t/80stress_fanout.t
