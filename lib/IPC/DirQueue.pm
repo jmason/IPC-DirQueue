@@ -370,17 +370,14 @@ sub _enqueue_backend {
     goto failure;
   }
 
-  # touch the "lastenq" flag file, to work around half-assed
-  # filesystems that don't update the mtime on a directory if a file
-  # changes inside it (e.g. Reiserfs)
-  my $pathflagsdir = $self->q_subdir('flags');
-  $self->ensure_dir_exists($pathflagsdir);
-
   # and incr the fanout counter for that fanout dir
   $self->queue_dir_fanout_commit($pathqueuedir, $fanout);
 
-  my $pathlenqfile = $pathflagsdir.SLASH."lastenq";
-  utime undef, undef, $pathlenqfile;
+  # touch the "queue" directory to indicate that it's changed
+  # and a file has been enqueued; required to support Reiserfs
+  # and XFS, where this is not implicit
+  $pathqueuedir = $self->q_subdir('queue');
+  utime undef, undef, $pathqueuedir;
 
   # my $pathqueue_created = 1;     # not required, we're done!
   return 1;
@@ -621,17 +618,8 @@ sub wait_for_queued_job {
     # to avoid a race condition where a job is added while we're
     # checking in that function.
 
-    # check the "lastenq" flag file; fall back to the queue dir
-    # if that file does not exist (backwards compat with pre-0.06 DQs)
-    my $pathlenqfile = $self->q_subdir('flags').SLASH."lastenq";
-    my @stat = stat ($pathlenqfile);
-    my $lenqlaststat = $stat[9];
-    my $qdirlaststat;
-
-    if (!defined $lenqlaststat) {
-      @stat = stat ($pathqueuedir);
-      $qdirlaststat = $stat[9];
-    }
+    my @stat = stat ($pathqueuedir);
+    my $qdirlaststat = $stat[9];
 
     my $job = $self->pickup_queued_job();
     if ($job) { return $job; }
@@ -646,25 +634,10 @@ sub wait_for_queued_job {
 
       Time::HiRes::usleep ($pollintvl);
 
-      my $wasactive;
-      if ($use_lenq_file || defined($lenqlaststat)) {
-        # modtime of "lastenq" flag file
-        @stat = stat ($pathlenqfile);
-        $wasactive = (defined $stat[9] &&
-              (defined $lenqlaststat && $stat[9] != $lenqlaststat)
-              || (!defined $lenqlaststat));
-      }
-      else {
-        # backwards compat; report modtime of dir
-        @stat = stat ($pathqueuedir);
-        $wasactive = (defined $stat[9] &&
-              (defined $qdirlaststat && $stat[9] != $qdirlaststat)
-              || (!defined $qdirlaststat));
-      }
-
-      if ($wasactive) {
-        last;                   # activity! try a pickup_queued_job() call
-      }
+      @stat = stat ($pathqueuedir);
+      last if (defined $stat[9] &&
+            (defined $qdirlaststat && $stat[9] != $qdirlaststat)
+            || (!defined $qdirlaststat));
     }
   }
 }
@@ -1406,15 +1379,6 @@ of enqueueing, and not ready ready for processing.
 
 The filename format here is similar to the above, with suffixes indicating
 the type of file (".ctrl", ".data").
-
-=item flags directory
-
-The B<flags> directory contains special-purpose 'flag files', used to control
-queue behaviour.   
-
-B<lastenq> is a flag file which is touched when a file is enqueued; this
-was added in v0.06 to work around a shortcoming in Reiserfs, which will
-not update the mtime on a directory when a file is created in it.
 
 =back
 
