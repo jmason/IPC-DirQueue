@@ -110,7 +110,8 @@ in no particular order.
 
 Whether the queue directory should be 'fanned out'.  This allows better
 scalability with NFS-shared queues with large numbers of pending files, but
-hurts performance otherwise.   It also implies B<ordered> = 0.
+hurts performance otherwise.   It also implies B<ordered> = 0. (This is
+strictly experimental, has overall poor performance, and is not recommended.)
 
 =item buf_size => $number (default: 65536)
 
@@ -1131,7 +1132,6 @@ sub dbg {
 
 sub queue_iter_start {
   my ($self, $pathqueuedir) = @_;
-  my $iter = { };
 
   if ($self->{ordered}) {
     dbg ("queue iter: opening $pathqueuedir (ordered)");
@@ -1139,26 +1139,11 @@ sub queue_iter_start {
     if (scalar @files <= 0) {
       return if $self->queuedir_is_bad($pathqueuedir);
     }
-    $iter->{files} = \@files;
 
+    return { files => \@files };
   }
   elsif ($self->{queue_fanout}) {
-    my @fanouts;
-    dbg ("queue iter: opening $pathqueuedir");
-    if (!opendir (DIR, $pathqueuedir)) {
-      @fanouts = ();          # no dir?  nothing queued
-    }
-    else {
-      my %map = map {
-              $_ => (-M $pathqueuedir.SLASH.$_)
-            } grep { /^[a-z0-9]$/ } readdir(DIR);
-      @fanouts = sort { $map{$a} <=> $map{$b} } keys %map;
-      dbg ("fanout: $pathqueuedir, order is ".join ' ', @fanouts);
-    }
-    closedir DIR;
-    $iter->{fanoutlist} = \@fanouts;
-    $iter->{pathqueuedir} = $pathqueuedir;
-
+    return $self->queue_iter_fanout_start($pathqueuedir);
   }
   else {
     my $dirfh;
@@ -1170,10 +1155,11 @@ sub queue_iter_start {
         return;
       }
     }
-    $iter->{fh} = $dirfh;
+
+    return { fh => $dirfh };
   }
 
-  return $iter;
+  die "cannot get here";
 }
 
 sub queue_iter_next {
@@ -1194,10 +1180,9 @@ sub queue_iter_next {
 
 sub queue_iter_stop {
   my ($self, $iter) = @_;
+
   if ($self->{queue_fanout}) {
-    if (defined $iter->{fanfh}) {
-      closedir($iter->{fanfh});
-    }
+    if (defined $iter->{fanfh}) { closedir($iter->{fanfh}); }
   }
   elsif (!$self->{ordered}) {
     closedir($iter->{fh});
@@ -1228,9 +1213,8 @@ sub queue_dir_fanout_commit {
     return;
   }
 
-  # now touch all levels
-  utime(undef, undef, $pathqueuedir.SLASH.$fanout,
-                    $pathqueuedir)
+  # now touch all levels ($pathqueuedir will be touched later)
+  utime(undef, undef, $pathqueuedir.SLASH.$fanout)
       or die "cannot touch fanout for $pathqueuedir/$fanout";
 }
 
@@ -1252,6 +1236,31 @@ sub queue_dir_fanout_path_strip {
     $fname =~ s/^.*\///;
   }
   return $fname;
+}
+
+sub queue_iter_fanout_start {
+  my ($self, $pathqueuedir) = @_;
+  my $iter = { };
+
+  {
+    my @fanouts;
+    dbg ("queue iter: opening $pathqueuedir");
+    if (!opendir (DIR, $pathqueuedir)) {
+      @fanouts = ();          # no dir?  nothing queued
+    }
+    else {
+      my %map = map {
+              $_ => (-M $pathqueuedir.SLASH.$_)
+            } grep { /^[a-z0-9]$/ } readdir(DIR);
+      @fanouts = sort { $map{$a} <=> $map{$b} } keys %map;
+      dbg ("fanout: $pathqueuedir, order is ".join ' ', @fanouts);
+    }
+    closedir DIR;
+    $iter->{fanoutlist} = \@fanouts;
+    $iter->{pathqueuedir} = $pathqueuedir;
+
+  }
+  return $iter;
 }
 
 sub queue_iter_fanout_next {
