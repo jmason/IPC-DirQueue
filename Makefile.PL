@@ -9,13 +9,15 @@ WriteMakefile(
         'dq-deque',
         'dq-list',
         'dq-server',
+        'dq-indexd',
         'dq-submit'
     ],
 
     'MAN1PODS' => {
-        'dq-submit'    => '$(INST_MAN1DIR)/dq-submit.$(MAN1EXT)',
-        'dq-server'    => '$(INST_MAN1DIR)/dq-server.$(MAN1EXT)',
-        'dq-list'    => '$(INST_MAN1DIR)/dq-list.$(MAN1EXT)',
+        'dq-submit'   => '$(INST_MAN1DIR)/dq-submit.$(MAN1EXT)',
+        'dq-server'   => '$(INST_MAN1DIR)/dq-server.$(MAN1EXT)',
+        'dq-list'     => '$(INST_MAN1DIR)/dq-list.$(MAN1EXT)',
+        'dq-indexd'   => '$(INST_MAN1DIR)/dq-indexd.$(MAN1EXT)',
         'dq-deque'    => '$(INST_MAN1DIR)/dq-deque.$(MAN1EXT)',
     },
 

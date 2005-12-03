@@ -63,6 +63,7 @@ use bytes;
 use Time::HiRes qw();
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL O_RDONLY);
 use IPC::DirQueue::Job;
+use IPC::DirQueue::IndexClient;
 use Errno qw(EEXIST);
 
 our @ISA = ();
@@ -113,6 +114,12 @@ scalability with NFS-shared queues with large numbers of pending files, but
 hurts performance otherwise.   It also implies B<ordered> = 0. (This is
 strictly experimental, has overall poor performance, and is not recommended.)
 
+=item indexd_uri => $uri (default: undef)
+
+A URI of a C<dq-indexd> daemon, used to maintain the list of waiting jobs.  The
+URI must be of the form  C<dq://hostname[:port]> . (This is strictly
+experimental, and is not recommended.)
+
 =item buf_size => $number (default: 65536)
 
 The buffer size to use when copying files, in bytes.
@@ -153,8 +160,16 @@ sub new {
   $self->{ensured_dir_exists} = { };
   $self->ensure_dir_exists ($self->{dir});
 
+  if ($self->{indexd_uri}) {
+    $self->{indexclient} = IPC::DirQueue::IndexClient->new({
+            uri => $self->{indexd_uri}
+          });
+  }
+
   $self;
 }
+
+sub dbg;
 
 ###########################################################################
 
@@ -368,6 +383,7 @@ sub _enqueue_backend {
                 $qcnametmp);
 
   if (!$pathqueue) {
+    dbg ("failed to link_into_dir, enq failed");
     goto failure;
   }
 
@@ -379,6 +395,11 @@ sub _enqueue_backend {
   # and XFS, where this is not implicit
   $pathqueuedir = $self->q_subdir('queue');
   utime undef, undef, $pathqueuedir;
+  dbg ("touched $pathqueuedir at ".time);
+
+  if ($self->{indexclient}) {
+    $self->{indexclient}->enqueue($pathqueuedir, $pathqueue);
+  }
 
   # my $pathqueue_created = 1;     # not required, we're done!
   return 1;
@@ -600,6 +621,8 @@ sub wait_for_queued_job {
     $finishtime = time + int ($timeout);
   }
 
+  dbg "wait_for_queued_job starting";
+
   if ($pollintvl) {
     $pollintvl *= 1000000;  # from secs to usecs
   } else {
@@ -625,21 +648,55 @@ sub wait_for_queued_job {
     my $job = $self->pickup_queued_job();
     if ($job) { return $job; }
 
+    # there's another semi-race condition here, brought about by a lack of
+    # sub-second precision from stat(2).  if the last enq occurred inside
+    # *this* current 1-second window, then *another* one can happen inside this
+    # second right afterwards, and we wouldn't notice.
+
+    # in other words (ASCII-art alert):
+    #    TIME   | t                                         | t+1
+    #    E      |          enq                      enq     |
+    #    D      |    stat       pickup_queued_job           |
+
+    # the enqueuer process E enqueues a job just after the stat, inside the
+    # 1-second period "t".  dequeuer process D dequeues it with
+    # pickup_queued_job(). all is well.  But then, E enqueues another job
+    # inside the same 1-second period "t", and since the stat() has already
+    # happened for "t", and since we've already picked up the job in "t", we
+    # don't recheck; result is, we miss this enqueue event.
+    #
+    # Avoid this by checking in a busy-loop until time(2) says we're out of
+    # that "danger zone" 1-second period.  Any further enq's would then
+    # cause stat(2) to report a different timestamp.
+
+    while (time == $qdirlaststat) {
+      Time::HiRes::usleep ($pollintvl);
+      dbg "wait_for_queued_job: spinning until time != stat $qdirlaststat";
+      my $job = $self->pickup_queued_job();
+      if ($job) { return $job; }
+    }
+
     # sleep until the directory's mtime changes from what it was when
     # we ran pickup_queued_job() last.
+
+    dbg "wait_for_queued_job: sleeping on $pathqueuedir";
     while (1) {
       my $now = time;
       if ($finishtime && $now >= $finishtime) {
+        dbg "wait_for_queued_job timed out";
         return undef;           # out of time
       }
 
       Time::HiRes::usleep ($pollintvl);
 
       @stat = stat ($pathqueuedir);
+      # dbg "wait_for_queued_job: stat $stat[9] $qdirlaststat $pathqueuedir";
       last if (defined $stat[9] &&
-            (defined $qdirlaststat && $stat[9] != $qdirlaststat)
-            || (!defined $qdirlaststat));
+            ((defined $qdirlaststat && $stat[9] != $qdirlaststat)
+                    || !defined $qdirlaststat));
     }
+
+    dbg "wait_for_queued_job: activity, calling pickup";
   }
 }
 
@@ -745,6 +802,15 @@ sub finish_job {
             or warn "IPC::DirQueue: unlink failed: $job->{pathqueue}";
     unlink($job->{QDFN})
             or warn "IPC::DirQueue: unlink failed: $job->{QDFN}";
+
+    if ($self->{indexclient}) {
+      my $pathqueuedir = $self->q_subdir('queue');
+      $self->{indexclient}->dequeue($pathqueuedir, $job->{pathqueue});
+    }
+
+    # touch the dir so that other dequeuers re-check; activity can
+    # introduce a small race, I think.  (don't think this is necessary)
+    # utime undef, undef, $pathqueuedir;
   }
 
   unlink($job->{pathactive})
@@ -1133,7 +1199,18 @@ sub dbg {
 sub queue_iter_start {
   my ($self, $pathqueuedir) = @_;
 
-  if ($self->{ordered}) {
+  if ($self->{indexclient}) {
+    dbg ("queue iter: getting list for $pathqueuedir");
+    my @files = sort { $a cmp $b } grep { /^\d/ } 
+            $self->{indexclient}->ls($pathqueuedir);
+
+    if (scalar @files <= 0) {
+      return if $self->queuedir_is_bad($pathqueuedir);
+    }
+
+    return { files => \@files };
+  }
+  elsif ($self->{ordered}) {
     dbg ("queue iter: opening $pathqueuedir (ordered)");
     my @files = $self->get_dir_filelist_sorted($pathqueuedir);
     if (scalar @files <= 0) {
@@ -1165,7 +1242,10 @@ sub queue_iter_start {
 sub queue_iter_next {
   my ($self, $iter) = @_;
 
-  if ($self->{ordered}) {
+  if ($self->{indexclient}) {
+    return shift @{$iter->{files}};
+  }
+  elsif ($self->{ordered}) {
     return shift @{$iter->{files}};
   }
   elsif ($self->{queue_fanout}) {
@@ -1181,12 +1261,9 @@ sub queue_iter_next {
 sub queue_iter_stop {
   my ($self, $iter) = @_;
 
-  if ($self->{queue_fanout}) {
-    if (defined $iter->{fanfh}) { closedir($iter->{fanfh}); }
-  }
-  elsif (!$self->{ordered}) {
-    closedir($iter->{fh});
-  }
+  return unless $iter;
+  if (defined $iter->{fanfh}) { closedir($iter->{fanfh}); }
+  if (defined $iter->{fh}) { closedir($iter->{fh}); }
 }
 
 ###########################################################################
