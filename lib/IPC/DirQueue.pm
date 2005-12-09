@@ -124,11 +124,6 @@ experimental, and is not recommended.)
 
 The buffer size to use when copying files, in bytes.
 
-=item back_compat_0_05 => { 0 | 1 } (default: 0)
-
-For dequeuers, whether to maintain backwards compatibility with
-enqueuers using IPC::DirQueue version 0.05 or earlier.
-
 =back
 
 =cut
@@ -631,8 +626,6 @@ sub wait_for_queued_job {
 
   my $pathqueuedir = $self->q_subdir('queue');
   $self->ensure_dir_exists ($pathqueuedir);
-
-  my $use_lenq_file = (!$self->{back_compat_0_05});
 
   # TODO: would be nice to use fam for this, where available.  But
   # no biggie...
