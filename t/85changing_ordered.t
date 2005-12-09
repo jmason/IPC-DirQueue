@@ -52,7 +52,7 @@ for my $i (0 .. 4) {
 }
 sleep 4;
 
-for my $i (0 .. 120) {
+for my $i (0 .. 300) {
   sleep 1;
   my $count = (-s "log/counter");
   if (!defined $count) {

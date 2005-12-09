@@ -51,7 +51,7 @@ for my $i (0 .. 4) {
 }
 sleep 4;
 
-for my $i (0 .. 60) {
+for my $i (0 .. 300) {
   sleep 1;
   my $count = (-s "log/counter");
   if (!defined $count) {
@@ -59,7 +59,7 @@ for my $i (0 .. 60) {
     system ("ls -l log/counter");
     die;
   }
-  print "count: $count     in qdir: ".count_qdir()."\n";
+  print "count: $count at $i     in qdir: ".count_qdir()."\n";
   if ($count && $count == 500) {
     last;
   }
