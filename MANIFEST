@@ -27,7 +27,7 @@ t/50_srv_b4_cli.t
 t/80stress.t
 t/80stress_fanout.t
 t/80stress_unordered.t
+t/85changing_basic.t
 t/85changing_indexd.t
 t/85changing_ordered.t
-t/85changing_workload.t
 t/Util.pm
