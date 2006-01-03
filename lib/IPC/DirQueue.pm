@@ -124,6 +124,11 @@ experimental, and is not recommended.)
 
 The buffer size to use when copying files, in bytes.
 
+=item active_file_lifetime => $number (default: 600)
+
+The lifetime of an untouched active lockfile, in seconds.  See 'STALE LOCKS AND
+SIGNAL HANDLING', below, for more details.
+
 =back
 
 =cut
@@ -151,6 +156,7 @@ sub new {
   }
 
   $self->{buf_size} ||= 65536;
+  $self->{active_file_lifetime} ||= 600;
 
   $self->{ensured_dir_exists} = { };
   $self->ensure_dir_exists ($self->{dir});
@@ -457,7 +463,7 @@ sub pickup_queued_job {
       # *DO* call time() here.  In extremely large dirs, it may take
       # several seconds to traverse the entire listing from start
       # to finish!
-      if (time() - $mtime < 600) {
+      if (time() - $mtime < $self->{active_file_lifetime}) {
         # active lockfile; it's being worked on.  skip this file
         next;
       }
@@ -485,7 +491,7 @@ sub pickup_queued_job {
       # accessible from perl?
 
       my $fudge = get_random_int() % 256;
-      if (time() - $mtime < 600+$fudge) {
+      if (time() - $mtime < $self->{active_file_lifetime}+$fudge) {
         # within the fudge zone.  don't unlink it in this process.
         dbg ("within active fudge zone, skip: $pathactive");
         next;
@@ -1062,11 +1068,13 @@ sub worker_still_working {
   my $wpid = <IN>; chomp $wpid;
   close IN;
   if ($hname eq $self->gethostname()) {
-    if (kill (0, $wpid)) {
-      return 1;         # pid is local, and still running.
+    if (!kill (0, $wpid)) {
+      return;           # pid is local and no longer running
     }
   }
-  return;               # pid is no longer running, or remote
+
+  # pid is still running, or remote
+  return 1;
 }
 
 ###########################################################################
@@ -1086,7 +1094,7 @@ sub new_q_filename {
 
   my @gmt = gmtime ($job->{time_submitted_secs});
 
-  # NN20040718140300MMMM.hash(hostname.$$)[.rand]
+  # NN.20040718140300MMMM.hash(hostname.$$)[.rand]
   #
   # NN = priority, default 50
   # MMMM = microseconds from Time::HiRes::gettimeofday()
@@ -1380,9 +1388,13 @@ next_fanout:
 
 =head1 STALE LOCKS AND SIGNAL HANDLING
 
-If interrupted or terminated, dequeueing processes should be careful to
-either call C<$job-E<gt>finish()> or C<$job-E<gt>return_to_queue()> on any active
+If interrupted or terminated, dequeueing processes should be careful to either
+call C<$job-E<gt>finish()> or C<$job-E<gt>return_to_queue()> on any active
 tasks before exiting -- otherwise those jobs will remain marked I<active>.
+
+Dequeueing processes can also call C<$job-E<gt>touch_active_lock()>
+periodically, while processing large tasks, to ensure that the task is still
+marked as I<active>.
 
 Stale locks are normally dealt with automatically.  If a lock is still
 I<active> after about 10 minutes of inactivity, the other dequeuers on
@@ -1392,9 +1404,13 @@ likely to be stale. If a given timeout (10 minutes plus a random value
 between 0 and 256 seconds) has elapsed since the lock file was last
 modified, the lock file is deleted.
 
+This 10-minute default can be modified using the C<active_file_lifetime>
+parameter to the C<IPC::DirQueue> constructor.
+
 Note: this means that if the dequeueing processes are spread among
 multiple machines, and there is no longer a dequeuer running on the
-machine that initially 'locked' the task, it will never be unlocked.
+machine that initially 'locked' the task, it will never be unlocked,
+unless you delete the I<active> file for that task.
 
 =head1 QUEUE DIRECTORY STRUCTURE
 
