@@ -819,9 +819,9 @@ sub get_dir_filelist_sorted {
     return ();          # no dir?  nothing queued
   }
   # have to read the lot, to sort them.
-  my @files = sort { $a cmp $b } grep { /^\d/ } readdir(DIR);
+  my @files = sort grep { /^\d/ } readdir(DIR);
   closedir DIR;
-  return @files;
+  return \@files;
 }
 
 ###########################################################################
@@ -1194,8 +1194,7 @@ sub queue_iter_start {
 
   if ($self->{indexclient}) {
     dbg ("queue iter: getting list for $pathqueuedir");
-    my @files = sort { $a cmp $b } grep { /^\d/ } 
-            $self->{indexclient}->ls($pathqueuedir);
+    my @files = sort grep { /^\d/ } $self->{indexclient}->ls($pathqueuedir);
 
     if (scalar @files <= 0) {
       return if $self->queuedir_is_bad($pathqueuedir);
@@ -1205,12 +1204,12 @@ sub queue_iter_start {
   }
   elsif ($self->{ordered}) {
     dbg ("queue iter: opening $pathqueuedir (ordered)");
-    my @files = $self->get_dir_filelist_sorted($pathqueuedir);
-    if (scalar @files <= 0) {
+    my $files = $self->get_dir_filelist_sorted($pathqueuedir);
+    if (scalar @$files <= 0) {
       return if $self->queuedir_is_bad($pathqueuedir);
     }
 
-    return { files => \@files };
+    return { files => $files };
   }
   elsif ($self->{queue_fanout}) {
     return $self->queue_iter_fanout_start($pathqueuedir);
