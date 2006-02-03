@@ -4,10 +4,16 @@
 # test continues, eventually the queues are exhausted and the
 # qprocs are left idle, waiting for enqueued data.
 
-our $SKIP = ($^O =~ /^(mswin|dos|os2)/oi);
+use constant WRONG_OS => ($^O =~ /^(mswin|dos|os2)/oi);
+use constant HAS_REQS => eval {
+    require POE; require POE::Component::Server::TCP; require POE::Filter::Line;
+};
+use constant RUN_TEST => (HAS_REQS && !WRONG_OS);
 
-use Test; BEGIN { plan tests => $SKIP ? 0 : 21 };
-exit if $SKIP;
+use Test;
+BEGIN { plan tests => RUN_TEST ? 21 : 0 };
+exit unless (RUN_TEST);
+
 
 use lib '../lib'; if (-d 't') { chdir 't'; }
 use IPC::DirQueue;
