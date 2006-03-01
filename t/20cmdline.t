@@ -8,42 +8,33 @@ exit if RUNNING_ON_WINDOWS;
 use lib '../lib'; if (-d 't') { chdir 't'; }
 use IPC::DirQueue;
 
-use Config;
-my $perl_path;
-{
-  if ($config{PERL_PATH}) {
-    $perl_path = $config{PERL_PATH};
-  }
-  elsif ($^X =~ m|^/|) {
-    $perl_path = $^X;
-  }
-  else {
-    $perl_path = $Config{perlpath};
-    $perl_path =~ s|/[^/]*$|/$^X|;
-  }
-}
+use lib '.'; use lib 't'; use Util;
+
+find_perl_path();
 
 mkdir ("log");
 mkdir ("log/qdir");
 
 open (OUT, ">log/test.dat"); print OUT "This is a test\n"; close OUT;
 
-run ("$perl_path ../dq-submit --dir log/qdir log/test.dat");
+my $runpfx = "$perl_path -I../lib";
+
+run ("$runpfx ../dq-submit --dir log/qdir log/test.dat");
 ok ($? >> 8 == 0);
-run ("$perl_path ../dq-submit --dir log/qdir log/test.dat");
+run ("$runpfx ../dq-submit --dir log/qdir log/test.dat");
 ok ($? >> 8 == 0);
-run ("$perl_path ../dq-submit --dir log/qdir log/test.dat");
+run ("$runpfx ../dq-submit --dir log/qdir log/test.dat");
 ok ($? >> 8 == 0);
-run ("$perl_path ../dq-submit --dir log/qdir log/test.dat");
+run ("$runpfx ../dq-submit --dir log/qdir log/test.dat");
 ok ($? >> 8 == 0);
 
-run ("$perl_path ../dq-list --dir log/qdir");
+run ("$runpfx ../dq-list --dir log/qdir");
 ok ($? >> 8 == 0);
 
-run ("$perl_path ../dq-deque --dir log/qdir cat");
+run ("$runpfx ../dq-deque --dir log/qdir cat");
 ok ($? >> 8 == 0);
 
-run ("$perl_path ../dq-server --njobs 3 --dir log/qdir cat");
+run ("$runpfx ../dq-server --njobs 3 --dir log/qdir cat");
 ok ($? >> 8 == 0);
 
 exit;
