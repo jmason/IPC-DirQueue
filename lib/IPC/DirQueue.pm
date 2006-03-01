@@ -395,7 +395,7 @@ sub _enqueue_backend {
   # and a file has been enqueued; required to support Reiserfs
   # and XFS, where this is not implicit
   $pathqueuedir = $self->q_subdir('queue');
-  utime undef, undef, $pathqueuedir;
+  $self->touch($pathqueuedir) or warn "touch failed on $pathqueuedir";
   dbg ("touched $pathqueuedir at ".time);
 
   if ($self->{indexclient}) {
@@ -809,7 +809,7 @@ sub finish_job {
 
     # touch the dir so that other dequeuers re-check; activity can
     # introduce a small race, I think.  (don't think this is necessary)
-    # utime undef, undef, $pathqueuedir;
+    # $self->touch($pathqueuedir) or warn "touch failed on $pathqueuedir";
   }
 
   unlink($job->{pathactive})
@@ -1291,7 +1291,7 @@ sub queue_dir_fanout_commit {
   }
 
   # now touch all levels ($pathqueuedir will be touched later)
-  utime(undef, undef, $pathqueuedir.SLASH.$fanout)
+  $self->touch($pathqueuedir.SLASH.$fanout)
       or die "cannot touch fanout for $pathqueuedir/$fanout";
 }
 
@@ -1378,6 +1378,24 @@ next_fanout:
   $iter->{fanstr} = undef;
   $iter->{fanfh} = undef;
   goto next_fanout;
+}
+
+use constant UTIME_TAKES_UNDEF_FOR_TOUCH => ($] >= 5.007002);
+
+sub touch {
+  my ($self, $path) = @_;
+
+  # 'Since perl 5.7.2, if the first two elements of the list are "undef", then
+  # the utime(2) function in the C library will be called with a null second
+  # argument. On most systems, this will set the file's access and modification
+  # times to the current time'.
+
+  if (UTIME_TAKES_UNDEF_FOR_TOUCH) {
+    return utime undef, undef, $path;
+  } else {
+    my $now = time;
+    return utime $now, $now, $path;
+  }
 }
 
 ###########################################################################
