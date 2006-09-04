@@ -822,7 +822,7 @@ sub get_dir_filelist_sorted {
   my ($self, $dir) = @_;
 
   if (!opendir (DIR, $dir)) {
-    return ();          # no dir?  nothing queued
+    return [];          # no dir?  nothing queued
   }
   # have to read the lot, to sort them.
   my @files = sort grep { /^\d/ } readdir(DIR);
