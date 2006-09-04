@@ -1448,20 +1448,20 @@ The filename format is as follows:
 
 The first two digits (C<50>) are the priority of the job.  Lower priority
 numbers are run first.  C<20040909232529> is the current date and time when the
-enqueueing process ran, in C<YYYYMMDDHHMMSS> format.   C<941258> is the time in
+enqueueing process was run, in C<YYYYMMDDHHMMSS> format.   C<941258> is the time in
 microseconds, as returned by C<gettimeofday()>.  And finally, C<HASH> is a
 variable-length hash of some semi-random data, used to increase the chance of
 uniqueness.
 
 If there is a collision, the timestamps are regenerated after a 250 msec sleep,
 and further randomness will be added at the end of the string (namely, the
-current process ID and a random integer value).   Multiple retries are
-attempted until the file is atomically moved into the B<queue> directory
-without collision.
+current process ID and a random integer value).   Up to 10 retries will be
+attempted.  Once the file is atomically moved into the B<queue> directory
+without collision, the retries cease.
 
 If B<queue_fanout> was used in the C<IPC::DirQueue> constructor, then
 the B<queue> directory does not contain the queue control files directly;
-instead, there is an interposing set of 16 'fanout' directories, named
+instead, there is an interposing set of 16 "fan-out" directories, named
 according to the hex digits from C<0> to C<f>.
 
 =item active directory
@@ -1478,7 +1478,8 @@ The B<data> directory is used to store enqueued data files.
 
 It contains a two-level "fan-out" hashed directory structure; each data file is
 stored under a single-letter directory, which in turn is under a single-letter
-directory.   This increases efficiency of directory lookups.
+directory.   This increases the efficiency of directory lookups under many
+filesystems.
 
 The format of filenames here is similar to that used in the B<queue> directory,
 except that the last two characters are removed and used instead for the
