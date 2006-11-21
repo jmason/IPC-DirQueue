@@ -17,6 +17,7 @@ long-tests/90bigstress.t
 long-tests/run-bigstress
 t/00basic.t
 t/10enq_string.t
+t/12_no_dir.t
 t/15_enq_fanout.t
 t/15_enq_indexd.t
 t/20cmdline.t
