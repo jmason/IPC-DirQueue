@@ -1,0 +1,45 @@
+
+NEW RELEASE PROCEDURE
+---------------------
+
+        Run:
+
+svn up
+svn log > CHANGES
+make tardist
+
+
+        Log in to CPAN PAUSE:
+
+https://pause.perl.org/pause/authenquery?ACTION=add_uri
+
+        Upload the new tarball.
+
+        Send this mail:
+
+================================================================================
+To: ipc-dirqueue@perl.org
+Cc: jm@jmason.org
+Subject: released version x.xx of IPC::DirQueue
+From: jm@jmason.org (Justin Mason)
+Fcc: +outbox
+
+Hi --
+
+Version x.xx of IPC::DirQueue is now released, and should be showing
+up on CPAN rsn.  Changes since x.xw:
+
+[cut and paste from CHANGES file]
+
+================================================================================
+
+        Then bump the version for the next release:
+
+vi lib/IPC/DirQueue.pm 
+/VERSION
+[bump]
+svn commit -m "RELEASED VERSION 0.08" lib/IPC/DirQueue.pm   
+
+
+        Done!
+
