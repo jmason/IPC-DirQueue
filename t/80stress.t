@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 
-our $SKIP = ($^O =~ /^(mswin|dos|os2)/oi);
+use constant SKIP => ($^O =~ /^(mswin|dos|os2)/oi);
 
-use Test; BEGIN { plan tests => $SKIP ? 0 : 113 };
-exit if $SKIP;
+use Test; BEGIN { plan tests => SKIP ? 0 : 113 };
+exit if SKIP;
 
 use lib '../lib'; if (-d 't') { chdir 't'; }
 use IPC::DirQueue;

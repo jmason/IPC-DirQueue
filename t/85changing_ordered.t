@@ -4,10 +4,10 @@
 # test continues, eventually the queues are exhausted and the
 # qprocs are left idle, waiting for enqueued data.
 
-our $SKIP = ($^O =~ /^(mswin|dos|os2)/oi);
+use constant SKIP => ($^O =~ /^(mswin|dos|os2)/oi);
 
-use Test; BEGIN { plan tests => $SKIP ? 0 : 18 };
-exit if $SKIP;
+use Test; BEGIN { plan tests => SKIP ? 0 : 18 };
+exit if SKIP;
 
 use lib '../lib'; if (-d 't') { chdir 't'; }
 use IPC::DirQueue;
