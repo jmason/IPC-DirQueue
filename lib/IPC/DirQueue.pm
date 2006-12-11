@@ -179,6 +179,10 @@ sub dbg;
 Enqueue a new job for processing. Returns C<1> if the job was enqueued, or
 C<undef> on failure.
 
+C<$filename> is the path to the file to be enqueued.  Its contents
+will be read, and will be used as the contents of the data file available
+to dequeuers using C<IPC::DirQueue::Job::get_data_path()>.
+
 C<$metadata> is an optional hash reference; every item of metadata will be
 available to worker processes on the C<IPC::DirQueue::Job> object, in the
 C<$job-E<gt>{metadata}> hashref.  Note that using this channel for metadata
@@ -224,9 +228,12 @@ sub enqueue_file {
 
 Enqueue a new job for processing. Returns C<1> if the job was enqueued, or
 C<undef> on failure. C<$pri> and C<$metadata> are as described in
-C<$dq-E<gt>enqueue_file()>.  C<$filehandle> is a perl file handle
-that must be open for reading.  It will be closed on completion,
-regardless of success or failure.
+C<$dq-E<gt>enqueue_file()>.
+
+C<$filehandle> is a perl file handle that must be open for reading.  It will be
+closed on completion, regardless of success or failure. Its contents will be
+read, and will be used as the contents of the data file available to dequeuers
+using C<IPC::DirQueue::Job::get_data_path()>.
 
 =cut
 
