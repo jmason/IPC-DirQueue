@@ -7,8 +7,10 @@ IPC::DirQueue::Job - an IPC::DirQueue task
     my $dq = IPC::DirQueue->new({ dir => "/path/to/queue" });
     my $job = $dq->pickup_queued_job();
 
-    my $path = $job->get_data_path();
+    open(IN, "<".$job->get_data_path());
+    my $str = <IN>;
     # ...
+    close IN;
     $job->finish();
 
 =head1 DESCRIPTION
@@ -22,6 +24,8 @@ Any submitted metadata can be accessed through the C<$job-E<gt>{metadata}>
 hash reference.  For example:
 
     print "email: ", $job->{metadata}->{submitter_email}, "\n";
+
+Otherwise, you can access the queued data file using C<get_data_path()>.
 
 =head1 METHODS
 
