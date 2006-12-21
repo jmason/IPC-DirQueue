@@ -7,7 +7,7 @@ use constant HAS_REQS => eval {
 use constant RUN_TEST => (HAS_REQS && !WRONG_OS);
 
 use Test;
-BEGIN { plan tests => RUN_TEST ? 704 : 0 };
+BEGIN { plan tests => RUN_TEST ? 804 : 0 };
 exit unless (RUN_TEST);
 
 
@@ -46,6 +46,7 @@ sub start_worker {
     my $job = $bq->wait_for_queued_job();
     if (!$job) { next; }
 
+    # Traditional
     ok ($job->get_data_path());
     ok (open (IN, "<".$job->get_data_path()));
     my $str = <IN>;
@@ -53,6 +54,11 @@ sub start_worker {
 
     ok ($str =~ /^hello world! \d+$/)   
         or warn "got: [$str]";
+        
+    # With get_data()
+    my $data = $job->get_data();
+    ok ($data =~ /^hello world! \d+$/)   
+        or warn "got: [$data]";
 
     ok ($job->{metadata}->{foo});
     ok ($job->{metadata}->{foo} =~ /^bar \d+$/)
