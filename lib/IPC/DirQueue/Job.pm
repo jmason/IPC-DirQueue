@@ -12,6 +12,11 @@ IPC::DirQueue::Job - an IPC::DirQueue task
     # ...
     close IN;
     $job->finish();
+    
+    # or...
+    
+    my $data = $job->get_data();
+    $job->finish();
 
 =head1 DESCRIPTION
 
@@ -25,7 +30,8 @@ hash reference.  For example:
 
     print "email: ", $job->{metadata}->{submitter_email}, "\n";
 
-Otherwise, you can access the queued data file using C<get_data_path()>.
+Otherwise, you can access the queued data file using C<get_data_path()>,
+or directly as a string using C<get_data()>.
 
 =head1 METHODS
 
@@ -56,6 +62,24 @@ sub new {
 }
 
 ###########################################################################
+
+=item $data = $job->get_data();
+
+Return the job's data. The return value will be a string, the data that was
+originally enqueued for this job.
+
+=cut
+
+sub get_data {
+  my ($self) = @_;
+  my $data;
+  open IN, $self->{QDFN} or die $!;
+  while (<IN>) {
+      $data .= $_;
+  }
+  close IN;
+  return $data;
+}
 
 =item $path = $job->get_data_path();
 
