@@ -1,6 +1,10 @@
 
-NEW RELEASE PROCEDURE
----------------------
+RELEASE PROCEDURE
+-----------------
+
+This is the procedure used to release a new version of IPC::DirQueue,
+recorded here as an aide-memoire.
+
 
         Run:
 

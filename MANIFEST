@@ -35,3 +35,4 @@ t/Util.pm
 t/60pickup_path_basic.t
 t/60pickup_path_fanout.t
 t/60pickup_path_ordered.t
+README.dist
