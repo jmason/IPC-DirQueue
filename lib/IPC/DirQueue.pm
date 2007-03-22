@@ -72,6 +72,7 @@ our $VERSION = 0.09;
 
 use constant SLASH => '/';
 
+# our $DEBUG = 1;
 our $DEBUG; # = 1;
 
 ###########################################################################
@@ -427,7 +428,7 @@ failure:
 
 ###########################################################################
 
-=item $job = $dq->pickup_queued_job();
+=item $job = $dq->pickup_queued_job( [ path => $path ] );
 
 Pick up the next job in the queue, so that it can be processed.
 
@@ -439,10 +440,16 @@ is returned.
 Note that the job is marked as I<active> until C<$job-E<gt>finish()>
 is called.
 
+If the (optional) parameter C<path> is used, its value indicates the path of
+the desired job's data file. By using this, it is possible to cancel
+not-yet-active items from anywhere in the queue, or pick up jobs out of
+sequence.  The data path must match the value of the I<pathqueue> member of the
+C<IPC::DirQueue::Job> object returned from C<visit_all_jobs()>.
+
 =cut
 
 sub pickup_queued_job {
-  my ($self) = @_;
+  my ($self, %args) = @_;
 
   my $pathqueuedir = $self->q_subdir('queue');
   my $pathactivedir = $self->q_subdir('active');
@@ -462,6 +469,9 @@ sub pickup_queued_job {
 
     next if ($nextfilebase !~ /^\d/);
     my $pathactive = $pathactivedir.SLASH.$nextfilebase;
+    my $pathqueue  = $pathqueuedir.SLASH.$nextfile;
+
+    next if (exists($args{path}) && ($pathqueue ne $args{path}));
 
     my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
         $atime,$mtime,$ctime,$blksize,$blocks) = lstat($pathactive);
@@ -533,8 +543,6 @@ sub pickup_queued_job {
     }
     print LOCK $self->gethostname(), "\n", $$, "\n";
     close LOCK;
-
-    my $pathqueue = $pathqueuedir.SLASH.$nextfile;
 
     if (!-f $pathqueue) {
       # queue file already gone; another worker got it before we did.

@@ -32,3 +32,6 @@ t/85changing_basic.t
 t/85changing_indexd.t
 t/85changing_ordered.t
 t/Util.pm
+t/60pickup_path_basic.t
+t/60pickup_path_fanout.t
+t/60pickup_path_ordered.t
