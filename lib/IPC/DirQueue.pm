@@ -1030,15 +1030,10 @@ sub create_control_file {
 }
 
 sub read_control_file {
-  my ($self, $job) = @_;
+  my ($self, $job, $infh) = @_;
   local ($_);
 
-  if (!open (IN, "<".$job->{pathqueue})) {
-    warn "IPC::DirQueue: cannot open $job->{pathqueue} for read: $!";
-    return;
-  }
-
-  while (<IN>) {
+  while (<$infh>) {
     my ($k, $value) = split (/: /, $_, 2);
     chop $value;
     if ($k =~ /^Q[A-Z]{3}$/) {
@@ -1048,7 +1043,6 @@ sub read_control_file {
       $job->{metadata}->{$k} = $value;
     }
   }
-  close IN;
 
   # all jobs must have a datafile (even if it's empty)
   if (!$job->{QDFN} || !-f $job->{QDFN}) {
