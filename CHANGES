@@ -1,4 +1,32 @@
 ------------------------------------------------------------------------
+r8418 | jmason | 2006-12-21 19:00:03 +0000 (Thu, 21 Dec 2006) | 1 line
+
+add IPC::DirQueue::Job::get_data() API, to access queued job data directly as a string instead of as a filename, thanks to Collin Winter <collinw at gmail.com>
+------------------------------------------------------------------------
+r8417 | jmason | 2006-12-21 18:33:56 +0000 (Thu, 21 Dec 2006) | 1 line
+
+add IPC::DirQueue::Job::get_data() API, to access queued job data directly as a string instead of as a filename, thanks to Collin Winter <collinw at gmail.com>
+------------------------------------------------------------------------
+r8379 | jmason | 2006-12-11 20:32:13 +0000 (Mon, 11 Dec 2006) | 1 line
+
+fix documentation; it was unclear for beginners as to how job data got into and out of IPC::DirQueue, and that reading/writing files is required
+------------------------------------------------------------------------
+r8378 | jmason | 2006-12-11 20:31:45 +0000 (Mon, 11 Dec 2006) | 1 line
+
+fix documentation; it was unclear for beginners as to how job data got into and out of IPC::DirQueue, and that reading/writing files is required
+------------------------------------------------------------------------
+r8103 | jmason | 2006-11-24 14:27:37 +0000 (Fri, 24 Nov 2006) | 1 line
+
+fix platform-specific tests: must use 'use constant' in the conditional variables, otherwise the tests appear to be failing on win32 platforms when in fact we're just trying to skip them (see http://www.nntp.perl.org/group/perl.cpan.testers/377405 for example)
+------------------------------------------------------------------------
+r8095 | jmason | 2006-11-21 13:14:28 +0000 (Tue, 21 Nov 2006) | 1 line
+
+add a docu file to mark the release procedure
+------------------------------------------------------------------------
+r8094 | jmason | 2006-11-21 13:13:17 +0000 (Tue, 21 Nov 2006) | 1 line
+
+RELEASED VERSION 0.08
+------------------------------------------------------------------------
 r8093 | jmason | 2006-11-21 13:04:53 +0000 (Tue, 21 Nov 2006) | 1 line
 
 add t/12_no_dir.t, to test for bug 21312 (no queue directory causes die())

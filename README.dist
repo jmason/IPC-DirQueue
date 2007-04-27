@@ -13,11 +13,7 @@ svn log > CHANGES
 make tardist
 
 
-        Log in to CPAN PAUSE:
-
-https://pause.perl.org/pause/authenquery?ACTION=add_uri
-
-        Upload the new tarball.
+        Upload the new tarball using cpan-upload.
 
         Send this mail:
 
