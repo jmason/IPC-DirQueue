@@ -443,8 +443,8 @@ is called.
 If the (optional) parameter C<path> is used, its value indicates the path of
 the desired job's data file. By using this, it is possible to cancel
 not-yet-active items from anywhere in the queue, or pick up jobs out of
-sequence.  The data path must match the value of the I<pathqueue> member of the
-C<IPC::DirQueue::Job> object returned from C<visit_all_jobs()>.
+sequence.  The data path must match the value of the I<pathqueue> member of
+the C<IPC::DirQueue::Job> object passed to the C<visit_all_jobs()> callback.
 
 =cut
 
@@ -716,7 +716,7 @@ sub wait_for_queued_job {
 
 ###########################################################################
 
-=item $job = $dq->visit_all_jobs($visitor, $visitcontext);
+=item $dq->visit_all_jobs($visitor, $visitcontext);
 
 Visit all the jobs in the queue, in a read-only mode.  Used to list
 the entire queue.
@@ -797,6 +797,7 @@ sub visit_all_jobs {
   }
 
   $self->queue_iter_stop($iter);
+  return;
 }
 
 ###########################################################################
