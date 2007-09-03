@@ -195,9 +195,9 @@ brings with it several restrictions:
 
 =item 2. neither 'name' nor 'value' may contain newline (\r) or NUL (\0) characters
 
-=item 3. 'name' cannot contain colon characters
+=item 3. 'name' cannot contain colon (:) characters
 
-=item 4. 'name' cannot start with a capital 'Q' and be 4 characters in length
+=item 4. 'name' cannot start with a capital letter 'Q' and be 4 characters in length
 
 =back
 
@@ -1021,8 +1021,8 @@ sub create_control_file {
   foreach my $k (keys %{$md}) {
     my $v = $md->{$k};
     if (($k =~ /^Q...$/)
-        || ($k =~ /[:\0\n]/)
-        || ($v =~ /[\0\n]/))
+        || ($k =~ /[:\0\r]/s)
+        || ($v =~ /[\0\r]/s))
     {
       close OUT;
       die "IPC::DirQueue: invalid metadatum: '$k'"; # TODO: clean up files?
