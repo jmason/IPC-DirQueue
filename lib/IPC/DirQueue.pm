@@ -193,7 +193,7 @@ brings with it several restrictions:
 
 =item 1. it requires that the metadata be stored as 'name' => 'value' string pairs
 
-=item 2. neither 'name' nor 'value' may contain newline (\r) or NUL (\0) characters
+=item 2. neither 'name' nor 'value' may contain newline (\n) or NUL (\0) characters
 
 =item 3. 'name' cannot contain colon (:) characters
 
@@ -1021,8 +1021,8 @@ sub create_control_file {
   foreach my $k (keys %{$md}) {
     my $v = $md->{$k};
     if (($k =~ /^Q...$/)
-        || ($k =~ /[:\0\r]/s)
-        || ($v =~ /[\0\r]/s))
+        || ($k =~ /[:\0\n]/s)
+        || ($v =~ /[\0\n]/s))
     {
       close OUT;
       die "IPC::DirQueue: invalid metadatum: '$k'"; # TODO: clean up files?
