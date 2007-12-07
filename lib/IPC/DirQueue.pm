@@ -866,7 +866,8 @@ sub copy_in_to_out_fh {
 
       $len = length ($stringin);
       next if ($len == 0);  # empty string, nothing to write
-      if (!syswrite ($fhout, $stringin, $len)) {
+
+      if (!print $fhout $stringin) {
         warn "IPC::DirQueue: enqueue: cannot write to $outfname: $!";
         close $fhout;
         return;
@@ -877,7 +878,7 @@ sub copy_in_to_out_fh {
   else {
     binmode $fhin;
     while (($len = read ($fhin, $buf, $self->{buf_size})) > 0) {
-      if (!syswrite ($fhout, $buf, $len)) {
+      if (!print $fhout $buf) {
         warn "IPC::DirQueue: cannot write to $outfname: $!";
         close $fhin; close $fhout;
         return;
