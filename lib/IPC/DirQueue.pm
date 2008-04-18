@@ -1068,7 +1068,7 @@ sub read_control_file {
 }
 
 sub worker_still_working {
-  my ($self, $fname);
+  my ($self, $fname) = @_;
   if (!$fname) {
     return;
   }
