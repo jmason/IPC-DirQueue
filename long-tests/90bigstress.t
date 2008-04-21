@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
-my $numjobs = shift @ARGV;
-use Test; BEGIN { plan tests => 113 };
+my $numjobs = shift @ARGV || 100;
+use Test; BEGIN { plan tests => 129 };
 
 use lib '../lib'; if (-d 't') { chdir 't'; }
 use IPC::DirQueue;
