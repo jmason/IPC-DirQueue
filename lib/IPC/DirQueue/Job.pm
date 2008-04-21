@@ -149,8 +149,7 @@ seconds, another C<IPC::DirQueue> queue processor may take it over.
 
 sub touch_active_lock {
   my ($self) = @_;
-  open (TOUCH, ">>".$self->{pathactive});
-  close TOUCH;
+  $self->{dqmaster}->touch($self->{pathactive});
 }
 
 ###########################################################################
