@@ -59,6 +59,7 @@ what will be worked on.
 
 package IPC::DirQueue;
 use strict;
+use warnings;
 use bytes;
 use Time::HiRes qw();
 use Fcntl qw(O_WRONLY O_CREAT O_EXCL O_RDONLY);
@@ -216,12 +217,13 @@ Priorities range from 0 to 99, and 50 is default.
 
 sub enqueue_file {
   my ($self, $file, $metadata, $pri) = @_;
-  if (!open (IN, "<$file")) {
+  my $fh;
+  if (!open ($fh, "<", $file)) {
     warn "IPC::DirQueue: cannot open $file for read: $!";
     return;
   }
-  my $ret = $self->_enqueue_backend ($metadata, $pri, \*IN);
-  close IN;
+  my $ret = $self->_enqueue_backend ($metadata, $pri, $fh);
+  close $fh;
   return $ret;
 }
 
@@ -570,7 +572,8 @@ sub pickup_queued_job {
       die "oops! active paths differ: $pathactive $pathnewactive";
     }
 
-    if (!open (IN, "<".$pathqueue))
+    my $fh;
+    if (!open ($fh, "<", $pathqueue))
     {
       # since we read the list of files upfront, this can happen:
       #
@@ -586,8 +589,8 @@ sub pickup_queued_job {
       next;     # NOT "goto nextfile", as pathtmpactive is already unlinked
     }
 
-    my $red = $self->read_control_file ($job, \*IN);
-    close IN;
+    my $red = $self->read_control_file ($job, $fh);
+    close $fh;
 
     next if (!$red);
 
@@ -698,7 +701,7 @@ sub wait_for_queued_job {
       my $now = time;
       if ($finishtime && $now >= $finishtime) {
         dbg "wait_for_queued_job timed out";
-        return undef;           # out of time
+        return;           # out of time
       }
 
       Time::HiRes::usleep ($pollintvl);
@@ -765,10 +768,11 @@ sub visit_all_jobs {
 
     my $acthost;
     my $actpid;
-    if (open (IN, "<$pathactive")) {
-      $acthost = <IN>; chomp $acthost;
-      $actpid = <IN>; chomp $actpid;
-      close IN;
+    my $fh;
+    if (open ($fh, "<", $pathactive)) {
+      $acthost = <$fh>; chomp $acthost;
+      $actpid = <$fh>; chomp $actpid;
+      close $fh;
     }
 
     my $job = IPC::DirQueue::Job->new ($self, {
@@ -780,13 +784,13 @@ sub visit_all_jobs {
       pathactive => $pathactive
     });
 
-    if (!open (IN, "<".$pathqueue)) {
+    if (!open ($fh, "<", $pathqueue)) {
       dbg ("queue file disappeared, job finished? skip: $pathqueue");
       next;
     }
 
-    my $red = $self->read_control_file ($job, \*IN);
-    close IN;
+    my $red = $self->read_control_file ($job, $fh);
+    close $fh;
 
     if (!$red) {
       warn "IPC::DirQueue: cannot read control file: $pathqueue";
@@ -1072,12 +1076,13 @@ sub worker_still_working {
   if (!$fname) {
     return;
   }
-  if (!open (IN, "<".$fname)) {
+  my $fh;
+  if (!open ($fh, "<", $fname)) {
     return;
   }
-  my $hname = <IN>; chomp $hname;
-  my $wpid = <IN>; chomp $wpid;
-  close IN;
+  my $hname = <$fh>; chomp $hname;
+  my $wpid = <$fh>; chomp $wpid;
+  close $fh;
   if ($hname eq $self->gethostname()) {
     if (!kill (0, $wpid)) {
       return;           # pid is local and no longer running
@@ -1151,7 +1156,8 @@ sub get_random_int {
   # forked multiple enqueueing procs, as they will all share the same seed and
   # will all return the same "random" output.
   my $buf;
-  if (sysopen (IN, "</dev/random", O_RDONLY) && read (IN, $buf, 2)) {
+  my $fh;
+  if (sysopen ($fh, "</dev/random", O_RDONLY) && read ($fh, $buf, 2)) {
     my ($hi, $lo) = unpack ("C2", $buf);
     return ($hi << 8) | $lo;
   } else {
@@ -1167,11 +1173,14 @@ sub gethostname {
   my $hname = $self->{myhostname};
   return $hname if $hname;
 
-  # try using Sys::Hostname. may fail on non-UNIX platforms
-  eval '
+  # try using Sys::Hostname. may fail on non-UNIX platforms.
+  # protect from Perl::Critic -- it's ok since we cache the result
+  # and we explicitly *don't* want to use the block form.
+  eval ## no critic
+  q{
     use Sys::Hostname;
     $self->{myhostname} = hostname;     # cache the result
-  ';
+  };
 
   # could have failed.  supply a default in that case
   $self->{myhostname} ||= 'nohost';
