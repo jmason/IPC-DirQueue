@@ -21,8 +21,8 @@ manage the queue; all communication takes place via the filesystem.
 
 A common UNIX system design pattern is to use a tool like C<lpr> as a task
 queueing system; for example,
-C<http://patrick.wagstrom.net/old/weblog/archives/000128.html> describes the
-use of C<lpr> as an MP3 jukebox.
+C<http://patrick.wagstrom.net/weblog/2003/05/23/lpdforfunandmp3playing/> describes
+the use of C<lpr> as an MP3 jukebox.
 
 However, C<lpr> isn't as efficient as it could be.  When used in this way, you
 have to restart each task processor for every new task.  If you have a lot of
